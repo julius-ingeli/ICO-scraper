@@ -725,7 +725,7 @@ def scrape_subject(ico: str) -> dict:
 
 
 def main():
-    ico = "12345678"
+    ico = os.getenv("ICO", "36785512")
 
     try:
         subjekt = scrape_subject(ico)

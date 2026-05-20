@@ -21,3 +21,5 @@ services:
         condition: service_healthy
     environment:
       SELENIUM_URL: http://selenium:4444/wd/hub
+      PYTHONUNBUFFERED: "1"
+      ICO: "36785512"
