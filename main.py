@@ -691,13 +691,50 @@ def parse_ruz_detail(driver) -> dict:
 # ORCHESTRATION
 # ============================================================
 
+NO_INFO_MESSAGE = "Na tomto portáli nie sú informácie o firme."
+
+
+def no_info_result() -> dict:
+    return {"message": NO_INFO_MESSAGE}
+
+
+def has_portal_data(value) -> bool:
+    if value is None:
+        return False
+
+    if isinstance(value, dict):
+        return any(has_portal_data(item) for item in value.values())
+
+    if isinstance(value, list):
+        return any(has_portal_data(item) for item in value)
+
+    if isinstance(value, str):
+        return bool(value.strip())
+
+    return True
+
+
+def run_portal_scrape(portal_name: str, scrape_func) -> dict:
+    try:
+        result = scrape_func()
+        if not has_portal_data(result):
+            print(f"[INFO] {portal_name}: bez výsledkov.")
+            return no_info_result()
+        return result
+    except Exception as e:
+        print(f"[WARN] {portal_name}: nepodarilo sa získať údaje: {type(e).__name__}: {e}")
+        if os.getenv("DEBUG_PORTAL_ERRORS") == "1":
+            traceback.print_exc()
+        return no_info_result()
+
+
 def scrape_subject(ico: str) -> dict:
     subjekt = {
         "ico": ico,
-        "orsr": {},
-        "rpvs": {},
-        "finstat": {},
-        "ruz":{}
+        "orsr": no_info_result(),
+        "rpvs": no_info_result(),
+        "finstat": no_info_result(),
+        "ruz": no_info_result()
     }
 
     driver = None
@@ -706,27 +743,29 @@ def scrape_subject(ico: str) -> dict:
         driver = create_driver()
         wait = WebDriverWait(driver, 20)
 
-        # ORSR
-        orsr_search_company(driver, wait, ico)
-        orsr_open_first_result(driver, wait)
-        subjekt["orsr"] = parse_orsr_detail(driver)
+        def scrape_orsr():
+            orsr_search_company(driver, wait, ico)
+            orsr_open_first_result(driver, wait)
+            return parse_orsr_detail(driver)
 
-        # RPVS
-        rpvs_search_company(driver, wait, ico)
-        rpvs_open_first_result(driver, wait)
-        subjekt["rpvs"] = parse_rpvs_detail(driver)
+        def scrape_rpvs():
+            rpvs_search_company(driver, wait, ico)
+            rpvs_open_first_result(driver, wait)
+            return parse_rpvs_detail(driver)
 
-        # FinStat
-        subjekt["finstat"] = finstat_scrape(ico)
+        def scrape_ruz():
+            ruz_search_company(driver, wait, ico)
+            return parse_ruz_detail(driver)
 
-        # RUZ
-        ruz_search_company(driver, wait, ico)
-        subjekt["ruz"] = parse_ruz_detail(driver)
+        subjekt["orsr"] = run_portal_scrape("ORSR", scrape_orsr)
+        subjekt["rpvs"] = run_portal_scrape("RPVS", scrape_rpvs)
+        subjekt["finstat"] = run_portal_scrape("FinStat", lambda: finstat_scrape(ico))
+        subjekt["ruz"] = run_portal_scrape("RUZ", scrape_ruz)
 
         return subjekt
 
     except Exception:
-        print("[ERROR] scrape_subject zlyhal.")
+        print("[ERROR] scrape_subject zlyhal pred spustením portálov.")
         traceback.print_exc()
         if driver:
             save_debug(driver, prefix=f"{ico}_debug")

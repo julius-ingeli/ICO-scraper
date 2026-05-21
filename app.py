@@ -175,6 +175,16 @@ INDEX_HTML = """<!doctype html>
       color: #1f2933;
     }
 
+    .notice {
+      padding: 14px 16px;
+      border: 1px solid #f0c36d;
+      border-radius: 6px;
+      background: #fff8e6;
+      color: #7c4a03;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
     .field-grid {
       display: grid;
       grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
@@ -304,6 +314,10 @@ INDEX_HTML = """<!doctype html>
     function renderValue(value) {
       if (value === null || value === undefined || value === '') {
         return '<span>-</span>';
+      }
+
+      if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1 && value.message) {
+        return `<div class="notice">${renderValue(value.message)}</div>`;
       }
 
       if (Array.isArray(value)) {
