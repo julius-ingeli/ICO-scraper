@@ -23,7 +23,7 @@ ORSR_URL = "https://www.orsr.sk/search_ico.asp"
 RPVS_URL = "https://rpvs.gov.sk/rpvs"
 RUZ_URL = "https://www.registeruz.sk/cruz-public/domain/accountingentity/simplesearch"
 
-SELENIUM_URL = os.getenv("SELENIUM_URL", "http://selenium:4444/wd/hub")
+SELENIUM_URL = os.getenv("SELENIUM_URL")
 
 
 # ============================================================
@@ -36,6 +36,19 @@ def create_driver(max_attempts=10, delay=3):
     # workaround na privacy error
     options.set_capability("acceptInsecureCerts", True)
     options.add_argument("--ignore-certificate-errors")
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1365,900")
+
+    chrome_bin = os.getenv("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
+    if not SELENIUM_URL:
+        print("[INFO] Spúšťam lokálny headless Chrome/Chromium.")
+        return webdriver.Chrome(options=options)
 
     for attempt in range(1, max_attempts + 1):
         try:

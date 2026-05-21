@@ -4,3 +4,5 @@ beautifulsoup4
 selenium
 
 lxml
+fastapi
+uvicorn[standard]
