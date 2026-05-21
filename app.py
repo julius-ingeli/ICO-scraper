@@ -180,60 +180,45 @@ INDEX_HTML = """<!doctype html>
       gap: 22px;
     }
 
-    .mock-chart {
-      border: 1px solid #d9e2ec;
-      border-radius: 8px;
-      padding: 16px;
-      background: #f8fafc;
+    .finstat-graphs {
+      display: grid;
+      gap: 14px;
     }
 
-    .mock-chart-title {
-      margin: 0 0 14px;
-      font-size: 16px;
+    .finstat-graphs-title {
+      margin: 0;
+      font-size: 18px;
       line-height: 1.3;
       color: #1f2933;
     }
 
-    .chart-bars {
-      height: 220px;
+    .finstat-graph-list {
       display: grid;
-      grid-template-columns: repeat(4, minmax(54px, 1fr));
-      align-items: end;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 14px;
-      padding: 14px 8px 10px;
-      border-left: 1px solid #cbd2d9;
-      border-bottom: 1px solid #cbd2d9;
-      background: linear-gradient(to top, rgba(203, 210, 217, 0.32) 1px, transparent 1px);
-      background-size: 100% 44px;
     }
 
-    .chart-bar-group {
-      min-width: 0;
-      display: grid;
-      gap: 8px;
-      justify-items: center;
+    .finstat-graph {
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      padding: 12px;
+      background: #f8fafc;
     }
 
-    .chart-bar {
-      width: min(42px, 100%);
-      min-height: 12px;
-      border-radius: 5px 5px 0 0;
-      background: #0f766e;
+    .finstat-graph-title {
+      margin: 0 0 10px;
+      font-size: 14px;
+      line-height: 1.35;
+      color: #323f4b;
     }
 
-    .chart-bar.loss { background: #b42318; }
-
-    .chart-label {
-      color: #52606d;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .chart-disclaimer {
-      margin: 12px 0 0;
-      color: #7c4a03;
-      font-size: 13px;
-      line-height: 1.45;
+    .finstat-graph img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid #edf1f5;
+      border-radius: 6px;
+      background: white;
     }
 
     .notice {
@@ -364,7 +349,6 @@ INDEX_HTML = """<!doctype html>
       .field-grid { grid-template-columns: 1fr; }
       .field-label { padding-bottom: 2px; border-bottom: 0; }
       .field-value { padding-top: 2px; }
-      .chart-bars { grid-template-columns: repeat(2, minmax(54px, 1fr)); }
     }
   </style>
 </head>
@@ -440,6 +424,15 @@ INDEX_HTML = """<!doctype html>
         return `<div class="notice">${renderValue(value.message)}</div>`;
       }
 
+      if (typeof value === 'object' && !Array.isArray(value) && value.image) {
+        return `
+          <article class="finstat-graph">
+            <h4 class="finstat-graph-title">${renderValue(value.nazov || 'Graf')}</h4>
+            <img src="${escapeAttribute(value.image)}" alt="${escapeAttribute(value.nazov || 'FinStat graf')}" loading="lazy" />
+          </article>
+        `;
+      }
+
       if (Array.isArray(value)) {
         if (value.length === 0) return '<span>-</span>';
         return `<div class="list">${value.map((item, index) => `
@@ -465,6 +458,15 @@ INDEX_HTML = """<!doctype html>
         .replaceAll('>', '&gt;');
     }
 
+    function escapeAttribute(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
 
     function firstValue(...values) {
       for (const value of values) {
@@ -477,7 +479,8 @@ INDEX_HTML = """<!doctype html>
 
     function renderSummary(data) {
       const orsr = data.orsr || {};
-      const finstatBasic = data.finstat?.zakladne_udaje || {};
+      const finstat = data.finstat || {};
+      const finstatBasic = finstat.zakladne_udaje || {};
       const companyName = firstValue(orsr.obchodne_meno, finstatBasic['Obchodné meno'], finstatBasic.Názov);
       const address = firstValue(orsr.sidlo, finstatBasic['Sídlo'], finstatBasic.Adresa);
       const foundingDay = firstValue(orsr.den_zapisu, finstatBasic['Dátum vzniku']);
@@ -494,31 +497,27 @@ INDEX_HTML = """<!doctype html>
             <div class="field-label">Deň vzniku</div>
             <div class="field-value">${renderValue(foundingDay)}</div>
           </div>
-          ${renderMockChart()}
+          ${renderFinstatGraphs(finstat.grafy || [])}
         </section>
       `;
     }
 
-    function renderMockChart() {
-      const bars = [
-        { label: '2021', height: 48, type: 'profit' },
-        { label: '2022', height: 72, type: 'profit' },
-        { label: '2023', height: 34, type: 'loss' },
-        { label: '2024', height: 86, type: 'profit' }
-      ];
+    function renderFinstatGraphs(graphs) {
+      if (!Array.isArray(graphs) || graphs.length === 0) {
+        return '<div class="notice">FinStat grafy sa nepodarilo načítať.</div>';
+      }
 
       return `
-        <section class="mock-chart" aria-label="Maketa finančného grafu">
-          <h3 class="mock-chart-title">Zisk / strata</h3>
-          <div class="chart-bars">
-            ${bars.map(bar => `
-              <div class="chart-bar-group">
-                <div class="chart-bar ${bar.type === 'loss' ? 'loss' : ''}" style="height: ${bar.height}%"></div>
-                <div class="chart-label">${bar.label}</div>
-              </div>
+        <section class="finstat-graphs" aria-label="FinStat grafy">
+          <h3 class="finstat-graphs-title">FinStat grafy</h3>
+          <div class="finstat-graph-list">
+            ${graphs.map((graph, index) => `
+              <article class="finstat-graph">
+                <h4 class="finstat-graph-title">${renderValue(graph.nazov || `Graf ${index + 1}`)}</h4>
+                <img src="${escapeAttribute(graph.image)}" alt="${escapeAttribute(graph.nazov || `FinStat graf ${index + 1}`)}" loading="lazy" />
+              </article>
             `).join('')}
           </div>
-          <p class="chart-disclaimer">Tento graf nereprezentuje reálne dáta, je to iba maketa.</p>
         </section>
       `;
     }

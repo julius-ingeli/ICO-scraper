@@ -593,6 +593,56 @@ def finstat_scrape(input_ico: str) -> dict:
                         result["financne_ukazovatele"][name] = value
 
     return result
+
+
+def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
+    print("[INFO] FinStat: snímam grafy...")
+    url = f"https://finstat.sk/vyhladavanie?query={input_ico}"
+
+    driver.get(url)
+    wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+    time.sleep(3)
+
+    graph_elements = driver.find_elements(By.CSS_SELECTOR, ".graph")
+    graphs = []
+
+    for idx, element in enumerate(graph_elements, start=1):
+        try:
+            if not element.is_displayed():
+                continue
+
+            size = element.size or {}
+            if size.get("width", 0) < 50 or size.get("height", 0) < 50:
+                continue
+
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", element)
+            time.sleep(0.5)
+
+            title = driver.execute_script(
+                """
+                const el = arguments[0];
+                const container = el.closest('section, article, .panel, .card, div') || el.parentElement;
+                const heading = container ? container.querySelector('h1, h2, h3, h4, .title') : null;
+                return (heading && heading.innerText && heading.innerText.trim()) ||
+                       el.getAttribute('aria-label') ||
+                       el.getAttribute('id') ||
+                       `Graf ${arguments[1]}`;
+                """,
+                element,
+                idx,
+            )
+
+            graphs.append({
+                "nazov": normalize_text(str(title)),
+                "image": f"data:image/png;base64,{element.screenshot_as_base64}",
+            })
+        except Exception as e:
+            print(f"[WARN] FinStat: graf {idx} sa nepodarilo zosnímať: {type(e).__name__}: {e}")
+            if os.getenv("DEBUG_PORTAL_ERRORS") == "1":
+                traceback.print_exc()
+
+    print(f"[INFO] FinStat: počet zosnímaných grafov: {len(graphs)}")
+    return graphs
 # ============================================================
 # RUZ
 # ============================================================
@@ -757,9 +807,14 @@ def scrape_subject(ico: str) -> dict:
             ruz_search_company(driver, wait, ico)
             return parse_ruz_detail(driver)
 
+        def scrape_finstat():
+            result = finstat_scrape(ico)
+            result["grafy"] = finstat_graph_screenshots(driver, wait, ico)
+            return result
+
         subjekt["orsr"] = run_portal_scrape("ORSR", scrape_orsr)
         subjekt["rpvs"] = run_portal_scrape("RPVS", scrape_rpvs)
-        subjekt["finstat"] = run_portal_scrape("FinStat", lambda: finstat_scrape(ico))
+        subjekt["finstat"] = run_portal_scrape("FinStat", scrape_finstat)
         subjekt["ruz"] = run_portal_scrape("RUZ", scrape_ruz)
 
         return subjekt
