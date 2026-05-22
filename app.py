@@ -274,48 +274,44 @@ INDEX_HTML = """<!doctype html>
       background: #f8fafc;
     }
 
-    .list-item-title {
-      margin: 0 0 8px;
-      color: #52606d;
-      font-size: 13px;
-      font-weight: 700;
+    .export-panel {
+      min-height: 320px;
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      padding: 18px;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      background: #f8fafc;
     }
 
-    .raw-json-wrap {
-      position: relative;
+    .export-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
     }
 
-    .copy-button {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      z-index: 1;
-      width: 38px;
-      height: 38px;
-      display: inline-grid;
-      place-items: center;
-      border: 1px solid #4b5563;
+    .export-button {
+      height: 42px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #0f766e;
       border-radius: 6px;
-      padding: 0;
-      background: #1f2937;
-      color: #e5e7eb;
+      padding: 0 14px;
+      background: #0f766e;
+      color: white;
+      font-size: 14px;
+      font-weight: 700;
       cursor: pointer;
     }
 
-    .copy-button:hover,
-    .copy-button:focus-visible {
-      border-color: #99f6e4;
-      color: #99f6e4;
-      outline: none;
+    .export-button.secondary {
+      background: white;
+      color: #0f766e;
     }
 
-    .copy-button.copied {
-      border-color: #99f6e4;
-      background: #134e4a;
-      color: #ccfbf1;
-    }
-
-    .copy-button svg {
+    .export-button svg {
       width: 18px;
       height: 18px;
       stroke: currentColor;
@@ -323,20 +319,6 @@ INDEX_HTML = """<!doctype html>
       fill: none;
       stroke-linecap: round;
       stroke-linejoin: round;
-    }
-
-    .raw-json {
-      margin: 0;
-      min-height: 420px;
-      overflow: auto;
-      border-radius: 8px;
-      background: #111827;
-      color: #e5e7eb;
-      padding: 58px 18px 18px;
-      font-size: 13px;
-      line-height: 1.55;
-      white-space: pre-wrap;
-      word-break: break-word;
     }
 
     @media (max-width: 720px) {
@@ -381,6 +363,14 @@ INDEX_HTML = """<!doctype html>
     const results = document.querySelector('#results');
     let latestRawJson = '';
 
+    const downloadIcon = `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <path d="M7 10l5 5 5-5"></path>
+        <path d="M12 15V3"></path>
+      </svg>
+    `;
+
     const copyIcon = `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
@@ -388,19 +378,13 @@ INDEX_HTML = """<!doctype html>
       </svg>
     `;
 
-    const checkIcon = `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M20 6 9 17l-5-5"></path>
-      </svg>
-    `;
-
     const categoryLabels = {
-      ico: 'IČO',
+      ico: 'Všeob. Info',
       orsr: 'ORSR',
       rpvs: 'RPVS',
       finstat: 'FinStat',
       ruz: 'RÚZ',
-      raw: 'Raw JSON'
+      raw: 'Export dát'
     };
 
     function formatKey(key) {
@@ -435,11 +419,8 @@ INDEX_HTML = """<!doctype html>
 
       if (Array.isArray(value)) {
         if (value.length === 0) return '<span>-</span>';
-        return `<div class="list">${value.map((item, index) => `
-          <div class="list-item">
-            <div class="list-item-title">Položka ${index + 1}</div>
-            ${renderValue(item)}
-          </div>
+        return `<div class="list">${value.map(item => `
+          <div class="list-item">${renderValue(item)}</div>
         `).join('')}</div>`;
       }
 
@@ -539,41 +520,57 @@ INDEX_HTML = """<!doctype html>
       textarea.remove();
     }
 
-    function bindCopyButton() {
-      const copyButton = document.querySelector('#copy-raw');
-      if (!copyButton) return;
+    function exportFilename() {
+      const ico = input.value.trim() || 'export';
+      return `ico-scraper-${ico}.json`;
+    }
 
-      copyButton.addEventListener('click', async () => {
-        try {
-          await copyText(latestRawJson);
-          copyButton.classList.add('copied');
-          copyButton.innerHTML = checkIcon;
-          copyButton.title = 'Skopírované';
-          copyButton.setAttribute('aria-label', 'Skopírované');
-          setTimeout(() => {
-            copyButton.classList.remove('copied');
-            copyButton.innerHTML = copyIcon;
-            copyButton.title = 'Kopírovať JSON';
-            copyButton.setAttribute('aria-label', 'Kopírovať JSON');
-          }, 1600);
-        } catch (error) {
-          statusEl.className = 'status error';
-          statusEl.textContent = 'Kopírovanie zlyhalo.';
-        }
-      });
+    function downloadJson() {
+      const blob = new Blob([latestRawJson], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = exportFilename();
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function bindExportButtons() {
+      const downloadButton = document.querySelector('#download-export');
+      const copyButton = document.querySelector('#copy-export');
+
+      if (downloadButton) {
+        downloadButton.addEventListener('click', downloadJson);
+      }
+
+      if (copyButton) {
+        copyButton.addEventListener('click', async () => {
+          try {
+            await copyText(latestRawJson);
+            const originalHtml = copyButton.innerHTML;
+            copyButton.textContent = 'Skopírované';
+            setTimeout(() => { copyButton.innerHTML = originalHtml; }, 1600);
+          } catch (error) {
+            statusEl.className = 'status error';
+            statusEl.textContent = 'Kopírovanie zlyhalo.';
+          }
+        });
+      }
     }
 
     function renderPanel(key, value, active) {
       if (key === 'raw') {
-        const rawJson = JSON.stringify(value, null, 2);
         return `
           <section class="panel ${active ? 'active' : ''}" id="panel-${key}" role="tabpanel">
-            <h2 class="panel-title">Raw JSON</h2>
-            <div class="raw-json-wrap">
-              <button class="copy-button" id="copy-raw" type="button" title="Kopírovať JSON" aria-label="Kopírovať JSON">
-                ${copyIcon}
-              </button>
-              <pre class="raw-json">${renderValue(rawJson)}</pre>
+            <h2 class="panel-title">Export dát</h2>
+            <div class="export-panel">
+              <p>Stiahnite si kompletný výsledok vo formáte JSON.</p>
+              <div class="export-actions">
+                <button class="export-button" id="download-export" type="button">${downloadIcon} Stiahnuť .json</button>
+                <button class="export-button secondary" id="copy-export" type="button">${copyIcon} Kopírovať JSON</button>
+              </div>
             </div>
           </section>
         `;
@@ -582,7 +579,7 @@ INDEX_HTML = """<!doctype html>
       if (key === 'ico') {
         return `
           <section class="panel ${active ? 'active' : ''}" id="panel-${key}" role="tabpanel">
-            <h2 class="panel-title">${formatKey(key)}</h2>
+            <h2 class="panel-title">Všeobecné Informácie</h2>
             ${renderSummary(value)}
           </section>
         `;
@@ -630,7 +627,7 @@ INDEX_HTML = """<!doctype html>
       tabs.querySelectorAll('.tab-button').forEach(tab => {
         tab.addEventListener('click', () => activateTab(tab.dataset.tab));
       });
-      bindCopyButton();
+      bindExportButtons();
     }
 
     form.addEventListener('submit', async (event) => {
