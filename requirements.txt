@@ -6,3 +6,4 @@ selenium
 lxml
 fastapi
 uvicorn[standard]
+openpyxl
