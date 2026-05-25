@@ -688,15 +688,43 @@ def ruz_search_company(driver, wait, ico: str):
     print("[SUCCESS] RUZ detail otvorený.")
 
 
-
+def ruz_open_annual_reports(driver) -> bool:
+    print("[INFO] RUZ: prepínam na Výročné správy...")
+    try:
+        link = WebDriverWait(driver, 3).until(
+            EC.presence_of_element_located((
+                By.CSS_SELECTOR,
+                "#link-ANNUAL_REPORT, a[data-statementtype='ANNUAL_REPORT']"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", link)
+        driver.execute_script("arguments[0].click();", link)
+        time.sleep(2)
+        return True
+    except Exception as e:
+        print(f"[INFO] RUZ: Výročné správy sa nepodarilo prepnúť, pokračujem bez pádu: {type(e).__name__}: {e}")
+        if os.getenv("DEBUG_PORTAL_ERRORS") == "1":
+            traceback.print_exc()
+        return False
 
 
 # ============================================================
 # RUZ PARSE
 # ============================================================
 
-def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
-    wrapper = soup.select_one("#allWrappers, #allWrapers")
+def absolute_ruz_url(href: str) -> str:
+    if not href:
+        return ""
+    if href.startswith("http://") or href.startswith("https://"):
+        return href
+    if href.startswith("/"):
+        return f"https://registeruz.sk{href}"
+    return f"https://registeruz.sk/{href}"
+
+
+def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5, wrapper_selector: str | None = None) -> list[dict]:
+    selector = wrapper_selector or "#allWrappers, #allWrapers"
+    wrapper = soup.select_one(selector)
     if not wrapper:
         print("[INFO] RUZ: allWrappers/allWrapers sa nenašiel.")
         return []
@@ -713,7 +741,8 @@ def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
         headers = [header for header in headers if header]
         records = []
 
-        for item in aria_table.select(".listing > .item"):
+        items = aria_table.select(".listing > .item") or aria_table.select(".item")
+        for item in items:
             title_row = item.select_one("a.title .row") or item.select_one(".row")
             cells = []
             if title_row:
@@ -731,11 +760,11 @@ def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
             documents = []
             collapse = item.select_one(".collapse")
             if collapse:
-                for link in collapse.select('a[href*="/financialreport/show/"]'):
+                for link in collapse.select('a[href*="/financialreport/show/"], a[href*="/financialreport/attachment/"]'):
                     title = normalize_text(link.select_one(".text-primary").get_text(" ", strip=True)) if link.select_one(".text-primary") else ""
                     kind = normalize_text(link.select_one(".text-black").get_text(" ", strip=True)) if link.select_one(".text-black") else ""
                     source = normalize_text(link.select_one(".text-gray").get_text(" ", strip=True)) if link.select_one(".text-gray") else ""
-                    href = link.get("href") or ""
+                    href = absolute_ruz_url(link.get("href") or "")
 
                     documents.append({
                         "nazov": title.rstrip(":"),
@@ -752,6 +781,9 @@ def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
 
             if len(records) >= limit:
                 return records
+
+        if records:
+            return records
 
     table = wrapper.find("table")
     if table:
@@ -775,14 +807,21 @@ def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
     return []
 
 
-def parse_ruz_detail(driver) -> dict:
+def parse_ruz_detail(driver, annual_reports: list[dict] | None = None) -> dict:
     print("[INFO] RUZ: parsujem detail...")
 
     html = driver.page_source
     soup = BeautifulSoup(html, "lxml")
+    statements = parse_ruz_all_wrappers(
+        soup,
+        limit=5,
+        wrapper_selector="#wrapper-INDIVIDUAL, #allWrappers, #allWrapers",
+    )
 
     result = {
-        "zaznamy": parse_ruz_all_wrappers(soup, limit=5)
+        "uctovne_zavierky": statements,
+        "vyrocne_spravy": annual_reports or [],
+        "zaznamy": statements,
     }
 
     container = soup.select_one('div[data-tab-container="1"]')
@@ -892,7 +931,25 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
 
         def scrape_ruz():
             ruz_search_company(driver, wait, ico)
-            return parse_ruz_detail(driver)
+            detail = parse_ruz_detail(driver)
+
+            initial_soup = BeautifulSoup(driver.page_source, "lxml")
+            annual_reports = parse_ruz_all_wrappers(
+                initial_soup,
+                limit=5,
+                wrapper_selector="#wrapper-ANNUAL_REPORT",
+            )
+
+            if not annual_reports and ruz_open_annual_reports(driver):
+                annual_soup = BeautifulSoup(driver.page_source, "lxml")
+                annual_reports = parse_ruz_all_wrappers(
+                    annual_soup,
+                    limit=5,
+                    wrapper_selector="#wrapper-ANNUAL_REPORT",
+                )
+
+            detail["vyrocne_spravy"] = annual_reports
+            return detail
 
         def scrape_finstat():
             result = finstat_scrape(ico)

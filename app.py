@@ -317,6 +317,68 @@ INDEX_HTML = """<!doctype html>
       background: #f8fafc;
     }
 
+    .data-table-wrap {
+      overflow-x: auto;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      background: white;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .data-table th,
+    .data-table td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #edf1f5;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .data-table th {
+      background: #f8fafc;
+      color: #52606d;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .period-button {
+      border: 0;
+      background: transparent;
+      color: #0f766e;
+      padding: 0;
+      height: auto;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .documents-row { display: none; }
+    .documents-row.visible { display: table-row; }
+
+    .documents-cell {
+      background: #f8fafc;
+      padding: 14px 16px !important;
+    }
+
+    .documents-title {
+      margin: 0 0 10px;
+      color: #323f4b;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .document-link {
+      color: #0f766e;
+      font-weight: 700;
+      text-decoration: underline;
+    }
+
     .export-panel {
       min-height: 320px;
       display: grid;
@@ -659,18 +721,105 @@ INDEX_HTML = """<!doctype html>
     }
 
 
+
+    function renderRuzRecordsTable(records, tableId) {
+      if (!Array.isArray(records) || records.length === 0) {
+        return '<div class="notice">Záznamy sa nepodarilo načítať.</div>';
+      }
+
+      const typeColumn = records.some(record => Object.prototype.hasOwnProperty.call(record, 'Typ výročnej správy'))
+        ? 'Typ výročnej správy'
+        : 'Typ závierky';
+      const columns = ['Obdobie', typeColumn, 'Predložená dňa', 'Zostavená dňa', 'Schválená dňa', 'SA uložená dňa'];
+      return `
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>${columns.map(column => `<th>${renderValue(column)}</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${records.map((record, index) => `
+                <tr>
+                  ${columns.map((column, columnIndex) => `
+                    <td>
+                      ${columnIndex === 0
+                        ? `<button class="period-button" type="button" data-documents-toggle="${tableId}-${index}" aria-expanded="false">${renderValue(record[column] || '-')}</button>`
+                        : renderValue(record[column] || '-')}
+                    </td>
+                  `).join('')}
+                </tr>
+                <tr class="documents-row" data-documents-row="${tableId}-${index}">
+                  <td class="documents-cell" colspan="${columns.length}">
+                    ${renderDocumentsTable(record.dokumenty || [])}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderDocumentsTable(documents) {
+      if (!Array.isArray(documents) || documents.length === 0) {
+        return '<div class="notice">Pre tento záznam nie sú dostupné dokumenty.</div>';
+      }
+
+      return `
+        <p class="documents-title">Dokumenty</p>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Názov</th>
+                <th>Typ</th>
+                <th>Zdroj</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${documents.map(documentItem => `
+                <tr>
+                  <td>${documentItem.url ? `<a class="document-link" href="${escapeAttribute(documentItem.url)}" target="_blank" rel="noopener noreferrer">${renderValue(documentItem.nazov || '-')}</a>` : renderValue(documentItem.nazov || '-')}</td>
+                  <td>${renderValue(documentItem.typ || '-')}</td>
+                  <td>${renderValue(documentItem.zdroj || '-')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function bindRuzTables() {
+      document.querySelectorAll('[data-documents-toggle]').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+          const row = document.querySelector(`[data-documents-row="${toggle.dataset.documentsToggle}"]`);
+          if (!row) return;
+          const isVisible = row.classList.toggle('visible');
+          toggle.setAttribute('aria-expanded', isVisible ? 'true' : 'false');
+        });
+      });
+    }
+
     function renderRuz(value) {
       if (!value || value.message) {
         return renderValue(value);
       }
 
-      const records = Array.isArray(value.zaznamy) ? value.zaznamy : [];
-      const rest = Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'zaznamy'));
+      const statements = Array.isArray(value.uctovne_zavierky)
+        ? value.uctovne_zavierky
+        : Array.isArray(value.zaznamy) ? value.zaznamy : [];
+      const annualReports = Array.isArray(value.vyrocne_spravy) ? value.vyrocne_spravy : [];
+      const rest = Object.fromEntries(
+        Object.entries(value).filter(([key]) => !['zaznamy', 'uctovne_zavierky', 'vyrocne_spravy'].includes(key))
+      );
 
       return `
         ${renderValue(rest)}
-        <h3 class="section-subtitle">Prvých 5 záznamov</h3>
-        ${records.length ? renderValue(records) : '<div class="notice">Záznamy sa nepodarilo načítať.</div>'}
+        <h3 class="section-subtitle">Účtovné závierky</h3>
+        ${renderRuzRecordsTable(statements, 'statements')}
+        <h3 class="section-subtitle">Výročné správy</h3>
+        ${renderRuzRecordsTable(annualReports, 'annual-reports')}
       `;
     }
 
@@ -749,6 +898,7 @@ INDEX_HTML = """<!doctype html>
         tab.addEventListener('click', () => activateTab(tab.dataset.tab));
       });
       bindExportButtons();
+      bindRuzTables();
     }
 
     form.addEventListener('submit', async (event) => {
