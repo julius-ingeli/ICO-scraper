@@ -921,9 +921,18 @@ INDEX_HTML = """<!doctype html>
     function renderResults(data) {
       latestData = data;
       latestRawJson = JSON.stringify(data, null, 2);
-      const preferredOrder = ['ico', 'orsr', 'rpvs', 'finstat', 'ruz', 'crz'];
+      const includeGeneralInfo = sourceInputs.every(input => input.checked);
+      const preferredOrder = [
+        ...(includeGeneralInfo ? ['ico'] : []),
+        'orsr',
+        'rpvs',
+        'finstat',
+        'ruz',
+        'crz'
+      ];
       const keys = preferredOrder.filter(key => key in data);
       Object.keys(data).forEach(key => {
+        if (key === 'ico' && !includeGeneralInfo) return;
         if (!keys.includes(key)) keys.push(key);
       });
       keys.push('raw');

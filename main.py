@@ -1021,8 +1021,14 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
 
         def scrape_finstat():
             result = finstat_scrape(ico)
-            driver, wait = ensure_browser()
-            result["grafy"] = finstat_graph_screenshots(driver, wait, ico)
+            try:
+                driver, wait = ensure_browser()
+                result["grafy"] = finstat_graph_screenshots(driver, wait, ico)
+            except Exception as e:
+                print(f"[WARN] FinStat: grafy sa nepodarilo získať: {type(e).__name__}: {e}")
+                if os.getenv("DEBUG_PORTAL_ERRORS") == "1":
+                    traceback.print_exc()
+                result["grafy"] = []
             return result
 
         if "orsr" in selected_sources:
