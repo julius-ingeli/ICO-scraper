@@ -680,10 +680,10 @@ def ruz_search_company(driver, wait, ico: str):
     wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
     try:
         WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.ID, "allWrapers"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, "#allWrappers, #allWrapers"))
         )
     except Exception:
-        print("[INFO] RUZ: allWrapers sa nenačítal počas krátkeho čakania.")
+        print("[INFO] RUZ: allWrappers/allWrapers sa nenačítal počas krátkeho čakania.")
 
     print("[SUCCESS] RUZ detail otvorený.")
 
@@ -696,13 +696,62 @@ def ruz_search_company(driver, wait, ico: str):
 # ============================================================
 
 def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
-    wrapper = soup.select_one("#allWrapers")
+    wrapper = soup.select_one("#allWrappers, #allWrapers")
     if not wrapper:
-        print("[INFO] RUZ: allWrapers sa nenašiel.")
+        print("[INFO] RUZ: allWrappers/allWrapers sa nenašiel.")
         return []
 
-    for element in wrapper.select("script, style, button, .icon-duplicate, .btn-link, i.icon"):
+    for element in wrapper.select("script, style, button, .icon-duplicate, i.icon"):
         element.decompose()
+
+    aria_table = wrapper.select_one('[role="table"], .b-items-table-list')
+    if aria_table:
+        headers = [
+            normalize_text(header.get_text(" ", strip=True))
+            for header in aria_table.select('[role="columnheader"]')
+        ]
+        headers = [header for header in headers if header]
+        records = []
+
+        for item in aria_table.select(".listing > .item"):
+            title_row = item.select_one("a.title .row") or item.select_one(".row")
+            cells = []
+            if title_row:
+                cells = [
+                    normalize_text(cell.get_text(" ", strip=True))
+                    for cell in title_row.select('[role="cell"]')
+                ]
+                cells = [cell for cell in cells]
+
+            record = {}
+            for idx, value in enumerate(cells):
+                label = headers[idx] if idx < len(headers) else f"stlpec_{idx + 1}"
+                record[label] = value
+
+            documents = []
+            collapse = item.select_one(".collapse")
+            if collapse:
+                for link in collapse.select('a[href*="/financialreport/show/"]'):
+                    title = normalize_text(link.select_one(".text-primary").get_text(" ", strip=True)) if link.select_one(".text-primary") else ""
+                    kind = normalize_text(link.select_one(".text-black").get_text(" ", strip=True)) if link.select_one(".text-black") else ""
+                    source = normalize_text(link.select_one(".text-gray").get_text(" ", strip=True)) if link.select_one(".text-gray") else ""
+                    href = link.get("href") or ""
+
+                    documents.append({
+                        "nazov": title.rstrip(":"),
+                        "typ": kind,
+                        "zdroj": source,
+                        "url": href,
+                    })
+
+            if documents:
+                record["dokumenty"] = documents
+
+            if record:
+                records.append(record)
+
+            if len(records) >= limit:
+                return records
 
     table = wrapper.find("table")
     if table:
@@ -723,48 +772,7 @@ def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
             if len(records) >= limit:
                 return records
 
-    candidates = []
-    for selector in (":scope > div", ":scope > article", ":scope > section", ".row"):
-        for element in wrapper.select(selector):
-            lines = [normalize_text(text) for text in element.stripped_strings if normalize_text(text)]
-            if len(lines) >= 2:
-                candidates.append(lines)
-        if candidates:
-            break
-
-    records = []
-    seen = set()
-
-    for lines in candidates:
-        key = tuple(lines)
-        if key in seen:
-            continue
-        seen.add(key)
-
-        record = {}
-        loose_lines = []
-
-        for line in lines:
-            if ":" in line:
-                label, value = line.split(":", 1)
-                label = normalize_text(label)
-                value = normalize_text(value)
-                if label and value:
-                    record[label] = value
-                    continue
-            loose_lines.append(line)
-
-        if record:
-            if loose_lines:
-                record["riadky"] = loose_lines
-        else:
-            record = {f"riadok_{idx}": value for idx, value in enumerate(loose_lines, start=1)}
-
-        records.append(record)
-        if len(records) >= limit:
-            break
-
-    return records
+    return []
 
 
 def parse_ruz_detail(driver) -> dict:
