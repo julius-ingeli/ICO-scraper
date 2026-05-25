@@ -689,6 +689,78 @@ def ruz_search_company(driver, wait, ico: str):
 # RUZ PARSE
 # ============================================================
 
+def parse_ruz_all_wrappers(soup: BeautifulSoup, limit: int = 5) -> list[dict]:
+    wrapper = soup.select_one("#allWrapers")
+    if not wrapper:
+        print("[INFO] RUZ: allWrapers sa nenašiel.")
+        return []
+
+    for element in wrapper.select("script, style, button, .icon-duplicate, .btn-link, i.icon"):
+        element.decompose()
+
+    table = wrapper.find("table")
+    if table:
+        headers = [normalize_text(cell.get_text(" ", strip=True)) for cell in table.select("thead th")]
+        records = []
+
+        for row in table.select("tbody tr"):
+            cells = [normalize_text(cell.get_text(" ", strip=True)) for cell in row.find_all(["td", "th"], recursive=False)]
+            cells = [cell for cell in cells if cell]
+            if not cells:
+                continue
+
+            if headers and len(headers) == len(cells):
+                records.append({header or f"stlpec_{idx}": value for idx, (header, value) in enumerate(zip(headers, cells), start=1)})
+            else:
+                records.append({f"stlpec_{idx}": value for idx, value in enumerate(cells, start=1)})
+
+            if len(records) >= limit:
+                return records
+
+    candidates = []
+    for selector in (":scope > div", ":scope > article", ":scope > section", ".row"):
+        for element in wrapper.select(selector):
+            lines = [normalize_text(text) for text in element.stripped_strings if normalize_text(text)]
+            if len(lines) >= 2:
+                candidates.append(lines)
+        if candidates:
+            break
+
+    records = []
+    seen = set()
+
+    for lines in candidates:
+        key = tuple(lines)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        record = {}
+        loose_lines = []
+
+        for line in lines:
+            if ":" in line:
+                label, value = line.split(":", 1)
+                label = normalize_text(label)
+                value = normalize_text(value)
+                if label and value:
+                    record[label] = value
+                    continue
+            loose_lines.append(line)
+
+        if record:
+            if loose_lines:
+                record["riadky"] = loose_lines
+        else:
+            record = {f"riadok_{idx}": value for idx, value in enumerate(loose_lines, start=1)}
+
+        records.append(record)
+        if len(records) >= limit:
+            break
+
+    return records
+
+
 def parse_ruz_detail(driver) -> dict:
     print("[INFO] RUZ: parsujem detail...")
 
@@ -734,6 +806,8 @@ def parse_ruz_detail(driver) -> dict:
             value = clean_value(normalize_text(" ".join(texts[1:])))
 
         result[label] = value
+
+    result["zaznamy"] = parse_ruz_all_wrappers(soup, limit=5)
 
     return result
 
