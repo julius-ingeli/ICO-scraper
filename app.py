@@ -458,6 +458,7 @@ INDEX_HTML = """<!doctype html>
           <label class="source-toggle"><input type="checkbox" name="source" value="rpvs" checked /> RPVS</label>
           <label class="source-toggle"><input type="checkbox" name="source" value="finstat" checked /> FinStat</label>
           <label class="source-toggle"><input type="checkbox" name="source" value="ruz" checked /> RÚZ</label>
+          <label class="source-toggle"><input type="checkbox" name="source" value="crz" checked /> CRZ</label>
         </div>
       </form>
     </section>
@@ -500,6 +501,7 @@ INDEX_HTML = """<!doctype html>
       rpvs: 'RPVS',
       finstat: 'FinStat',
       ruz: 'RÚZ',
+      crz: 'CRZ',
       raw: 'Export dát'
     };
 
@@ -722,6 +724,48 @@ INDEX_HTML = """<!doctype html>
 
 
 
+
+    function renderCrz(value) {
+      if (!value || value.message) {
+        return renderValue(value);
+      }
+
+      const contracts = Array.isArray(value.zmluvy) ? value.zmluvy : [];
+      if (contracts.length === 0) {
+        return '<div class="notice">V CRZ sa nepodarilo načítať zmluvy.</div>';
+      }
+
+      return `
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Dátum</th>
+                <th>Zmluva</th>
+                <th>Cena</th>
+                <th>Dodávateľ</th>
+                <th>Odberateľ</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${contracts.map(contract => `
+                <tr>
+                  <td>${renderValue(contract.datum || '-')}</td>
+                  <td>
+                    ${contract.link ? `<a class="document-link" href="${escapeAttribute(contract.link)}" target="_blank" rel="noopener noreferrer">${renderValue(contract.nazov_zmluvy || '-')}</a>` : renderValue(contract.nazov_zmluvy || '-')}
+                    ${contract.cislo_zmluvy ? `<br><span>${renderValue(contract.cislo_zmluvy)}</span>` : ''}
+                  </td>
+                  <td>${renderValue(contract.cena || '-')}</td>
+                  <td>${renderValue(contract.dodavatel || '-')}</td>
+                  <td>${renderValue(contract.odberatel || '-')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
     function renderRuzRecordsTable(records, tableId) {
       if (!Array.isArray(records) || records.length === 0) {
         return '<div class="notice">Záznamy sa nepodarilo načítať.</div>';
@@ -852,7 +896,9 @@ INDEX_HTML = """<!doctype html>
       const displayValue = key === 'finstat' && value && typeof value === 'object'
         ? Object.fromEntries(Object.entries(value).filter(([childKey]) => childKey !== 'grafy'))
         : value;
-      const body = key === 'ruz' ? renderRuz(displayValue) : renderValue(displayValue);
+      const body = key === 'ruz'
+        ? renderRuz(displayValue)
+        : key === 'crz' ? renderCrz(displayValue) : renderValue(displayValue);
 
       return `
         <section class="panel ${active ? 'active' : ''}" id="panel-${key}" role="tabpanel">
@@ -875,7 +921,7 @@ INDEX_HTML = """<!doctype html>
     function renderResults(data) {
       latestData = data;
       latestRawJson = JSON.stringify(data, null, 2);
-      const preferredOrder = ['ico', 'orsr', 'rpvs', 'finstat', 'ruz'];
+      const preferredOrder = ['ico', 'orsr', 'rpvs', 'finstat', 'ruz', 'crz'];
       const keys = preferredOrder.filter(key => key in data);
       Object.keys(data).forEach(key => {
         if (!keys.includes(key)) keys.push(key);

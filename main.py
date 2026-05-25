@@ -22,6 +22,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 ORSR_URL = "https://www.orsr.sk/search_ico.asp"
 RPVS_URL = "https://rpvs.gov.sk/rpvs"
 RUZ_URL = "https://www.registeruz.sk/cruz-public/domain/accountingentity/simplesearch"
+CRZ_URL = "https://www.crz.gov.sk/2171273-sk/centralny-register-zmluv/"
 
 SELENIUM_URL = os.getenv("SELENIUM_URL")
 
@@ -643,6 +644,67 @@ def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
 
     print(f"[INFO] FinStat: počet zosnímaných grafov: {len(graphs)}")
     return graphs
+
+# ============================================================
+# CRZ
+# ============================================================
+
+def absolute_crz_url(href: str) -> str:
+    if not href:
+        return ""
+    if href.startswith("http://") or href.startswith("https://"):
+        return href
+    if href.startswith("/"):
+        return f"https://www.crz.gov.sk{href}"
+    return f"https://www.crz.gov.sk/{href}"
+
+
+def crz_scrape(input_ico: str, limit: int = 10) -> dict:
+    print("[INFO] CRZ: scraping...")
+    response = requests.get(
+        CRZ_URL,
+        params={"search": input_ico},
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
+        timeout=20,
+        verify=False,
+    )
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "lxml")
+    records = []
+
+    for row in soup.select("table.table_list tbody tr"):
+        cells = row.find_all("td", recursive=False)
+        if len(cells) < 5:
+            continue
+
+        date_parts = [normalize_text(part) for part in cells[0].stripped_strings if normalize_text(part)]
+        date = " ".join(date_parts)
+
+        contract_link = cells[1].find("a", href=True)
+        contract_number = cells[1].find("span")
+
+        record = {
+            "datum": date,
+            "nazov_zmluvy": normalize_text(contract_link.get_text(" ", strip=True)) if contract_link else normalize_text(cells[1].get_text(" ", strip=True)),
+            "cislo_zmluvy": normalize_text(contract_number.get_text(" ", strip=True)) if contract_number else "",
+            "link": absolute_crz_url(contract_link.get("href", "")) if contract_link else "",
+            "cena": normalize_text(cells[2].get_text(" ", strip=True)),
+            "dodavatel": normalize_text(cells[3].get_text(" ", strip=True)),
+            "odberatel": normalize_text(cells[4].get_text(" ", strip=True)),
+        }
+        records.append(record)
+
+        if len(records) >= limit:
+            break
+
+    return {"zmluvy": records}
 # ============================================================
 # RUZ
 # ============================================================
@@ -869,7 +931,7 @@ def parse_ruz_detail(driver, annual_reports: list[dict] | None = None) -> dict:
 # ============================================================
 
 NO_INFO_MESSAGE = "Na tomto portáli nie sú informácie o firme."
-AVAILABLE_SOURCES = {"orsr", "rpvs", "finstat", "ruz"}
+AVAILABLE_SOURCES = {"orsr", "rpvs", "finstat", "ruz", "crz"}
 
 
 def no_info_result() -> dict:
@@ -916,20 +978,26 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
     driver = None
 
     try:
-        driver = create_driver()
-        wait = WebDriverWait(driver, 20)
+        def ensure_browser():
+            nonlocal driver
+            if driver is None:
+                driver = create_driver()
+            return driver, WebDriverWait(driver, 20)
 
         def scrape_orsr():
+            driver, wait = ensure_browser()
             orsr_search_company(driver, wait, ico)
             orsr_open_first_result(driver, wait)
             return parse_orsr_detail(driver)
 
         def scrape_rpvs():
+            driver, wait = ensure_browser()
             rpvs_search_company(driver, wait, ico)
             rpvs_open_first_result(driver, wait)
             return parse_rpvs_detail(driver)
 
         def scrape_ruz():
+            driver, wait = ensure_browser()
             ruz_search_company(driver, wait, ico)
             detail = parse_ruz_detail(driver)
 
@@ -953,6 +1021,7 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
 
         def scrape_finstat():
             result = finstat_scrape(ico)
+            driver, wait = ensure_browser()
             result["grafy"] = finstat_graph_screenshots(driver, wait, ico)
             return result
 
@@ -964,6 +1033,8 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
             subjekt["finstat"] = run_portal_scrape("FinStat", scrape_finstat)
         if "ruz" in selected_sources:
             subjekt["ruz"] = run_portal_scrape("RUZ", scrape_ruz)
+        if "crz" in selected_sources:
+            subjekt["crz"] = run_portal_scrape("CRZ", lambda: crz_scrape(ico))
 
         return subjekt
 
