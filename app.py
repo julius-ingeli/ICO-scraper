@@ -257,6 +257,13 @@ INDEX_HTML = """<!doctype html>
       background: white;
     }
 
+    .section-subtitle {
+      margin: 18px 0 10px;
+      font-size: 18px;
+      line-height: 1.3;
+      color: #1f2933;
+    }
+
     .notice {
       padding: 14px 16px;
       border: 1px solid #f0c36d;
@@ -651,6 +658,22 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
+
+    function renderRuz(value) {
+      if (!value || value.message) {
+        return renderValue(value);
+      }
+
+      const records = Array.isArray(value.zaznamy) ? value.zaznamy : [];
+      const rest = Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'zaznamy'));
+
+      return `
+        ${renderValue(rest)}
+        <h3 class="section-subtitle">Prvých 5 záznamov</h3>
+        ${records.length ? renderValue(records) : '<div class="notice">Záznamy sa nepodarilo načítať.</div>'}
+      `;
+    }
+
     function renderPanel(key, value, active) {
       if (key === 'raw') {
         return `
@@ -680,11 +703,12 @@ INDEX_HTML = """<!doctype html>
       const displayValue = key === 'finstat' && value && typeof value === 'object'
         ? Object.fromEntries(Object.entries(value).filter(([childKey]) => childKey !== 'grafy'))
         : value;
+      const body = key === 'ruz' ? renderRuz(displayValue) : renderValue(displayValue);
 
       return `
         <section class="panel ${active ? 'active' : ''}" id="panel-${key}" role="tabpanel">
           <h2 class="panel-title">${formatKey(key)}</h2>
-          ${renderValue(displayValue)}
+          ${body}
         </section>
       `;
     }

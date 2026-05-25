@@ -678,6 +678,12 @@ def ruz_search_company(driver, wait, ico: str):
     # počkaj na detail
     wait.until(lambda d: "/show/" in d.current_url)
     wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+    try:
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "allWrapers"))
+        )
+    except Exception:
+        print("[INFO] RUZ: allWrapers sa nenačítal počas krátkeho čakania.")
 
     print("[SUCCESS] RUZ detail otvorený.")
 
@@ -767,7 +773,9 @@ def parse_ruz_detail(driver) -> dict:
     html = driver.page_source
     soup = BeautifulSoup(html, "lxml")
 
-    result = {}
+    result = {
+        "zaznamy": parse_ruz_all_wrappers(soup, limit=5)
+    }
 
     container = soup.select_one('div[data-tab-container="1"]')
     if not container:
@@ -806,8 +814,6 @@ def parse_ruz_detail(driver) -> dict:
             value = clean_value(normalize_text(" ".join(texts[1:])))
 
         result[label] = value
-
-    result["zaznamy"] = parse_ruz_all_wrappers(soup, limit=5)
 
     return result
 
