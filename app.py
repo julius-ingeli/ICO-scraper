@@ -230,7 +230,7 @@ INDEX_HTML = """<!doctype html>
 
     .finstat-graph-list {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
       gap: 14px;
     }
 
@@ -239,6 +239,10 @@ INDEX_HTML = """<!doctype html>
       border-radius: 8px;
       padding: 12px;
       background: #f8fafc;
+    }
+
+    .finstat-graph.wide {
+      grid-column: 1 / -1;
     }
 
     .finstat-graph-title {
@@ -255,6 +259,142 @@ INDEX_HTML = """<!doctype html>
       border: 1px solid #edf1f5;
       border-radius: 6px;
       background: white;
+    }
+
+    .line-chart {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 220px;
+      border: 1px solid #edf1f5;
+      border-radius: 6px;
+      background: white;
+    }
+
+    .line-chart text {
+      font-size: 11px;
+      fill: #52606d;
+    }
+
+    .line-chart .value-label {
+      font-weight: 700;
+      fill: #1f2933;
+    }
+
+    .line-chart .value-label.estimated {
+      font-style: italic;
+      fill: #52606d;
+    }
+
+    .line-chart .chart-line {
+      fill: none;
+      stroke: #0f766e;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .line-chart .chart-point {
+      fill: white;
+      stroke: #0f766e;
+      stroke-width: 2;
+    }
+
+    .bar-chart-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .bar-chart {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 300px;
+      border: 1px solid #edf1f5;
+      border-radius: 6px;
+      background: white;
+    }
+
+    .bar-chart text {
+      font-size: 11px;
+      fill: #52606d;
+    }
+
+    .bar-chart .total-label {
+      font-weight: 700;
+      fill: #1f2933;
+    }
+
+    .chart-legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 7px 14px;
+      padding: 4px 0 0;
+    }
+
+    .chart-legend-item {
+      display: grid;
+      grid-template-columns: 10px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      line-height: 1.25;
+      color: #323f4b;
+    }
+
+    .chart-legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+    }
+
+    .pie-chart-layout {
+      display: grid;
+      grid-template-columns: minmax(190px, 0.9fr) minmax(0, 1.1fr);
+      gap: 14px;
+      align-items: center;
+    }
+
+    .pie-chart {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 240px;
+      border: 1px solid #edf1f5;
+      border-radius: 6px;
+      background: white;
+    }
+
+    .pie-chart path {
+      stroke: white;
+      stroke-width: 1;
+      stroke-linejoin: round;
+    }
+
+    .pie-legend {
+      display: grid;
+      gap: 6px;
+    }
+
+    .pie-legend-item {
+      display: grid;
+      grid-template-columns: 10px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      line-height: 1.25;
+      color: #323f4b;
+    }
+
+    .pie-legend-value {
+      color: #52606d;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 900px) {
+      .finstat-graph-list { grid-template-columns: 1fr; }
+      .pie-chart-layout { grid-template-columns: 1fr; }
     }
 
     .section-subtitle {
@@ -608,6 +748,144 @@ INDEX_HTML = """<!doctype html>
       `;
     }
 
+    function renderFinstatLineChart(chartData) {
+      const points = chartData && Array.isArray(chartData.body) ? chartData.body : [];
+      if (points.length < 2) return '';
+
+      const width = 520;
+      const height = 260;
+      const padding = { top: 28, right: 30, bottom: 44, left: 34 };
+      const xs = points.map((point, index) => Number.isFinite(point.x_svg) ? point.x_svg : index);
+      const ys = points.map(point => Number.isFinite(point.y_svg) ? point.y_svg : 0);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const scaleX = value => padding.left + ((value - minX) / Math.max(maxX - minX, 1)) * plotWidth;
+      const scaleY = value => padding.top + ((value - minY) / Math.max(maxY - minY, 1)) * plotHeight;
+      const chartPoints = points.map((point, index) => ({
+        x: scaleX(xs[index]),
+        y: scaleY(ys[index]),
+        year: point.rok || '',
+        valueLabel: point.value_label || '',
+        valueEstimated: Boolean(point.value_estimated)
+      }));
+      const linePath = chartPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
+      const gridLines = [0, 0.33, 0.66, 1].map(ratio => padding.top + ratio * plotHeight);
+
+      return `
+        <svg class="line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(chartData.nazov || 'FinStat graf')}">
+          ${gridLines.map(y => `<line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" stroke="#e6e5e5" stroke-dasharray="6 4" />`).join('')}
+          <path class="chart-line" d="${linePath}" />
+          ${chartPoints.map(point => `
+            <circle class="chart-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" />
+            ${point.valueLabel ? `<text class="value-label ${point.valueEstimated ? 'estimated' : ''}" x="${point.x.toFixed(1)}" y="${Math.max(14, point.y - 10).toFixed(1)}" text-anchor="middle">${renderValue(point.valueLabel)}</text>` : ''}
+            <text x="${point.x.toFixed(1)}" y="${height - 16}" text-anchor="middle">${renderValue(point.year)}</text>
+          `).join('')}
+        </svg>
+      `;
+    }
+
+    function renderFinstatBarChart(chartData) {
+      const rows = chartData && Array.isArray(chartData.body) ? chartData.body : [];
+      const legend = chartData && Array.isArray(chartData.legend) ? chartData.legend : [];
+      if (rows.length === 0 || legend.length === 0) return '';
+
+      const width = 760;
+      const height = 340;
+      const padding = { top: 34, right: 28, bottom: 48, left: 34 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const maxStack = Math.max(...rows.map(row => Number(row.stack_height_svg) || 0), 1);
+      const barWidth = Math.min(76, plotWidth / Math.max(rows.length, 1) * 0.6);
+      const gap = rows.length > 1 ? plotWidth / (rows.length - 1) : 0;
+      const gridLines = [0, 0.33, 0.66, 1].map(ratio => padding.top + ratio * plotHeight);
+
+      const bars = rows.map((row, rowIndex) => {
+        const centerX = rows.length > 1 ? padding.left + rowIndex * gap : padding.left + plotWidth / 2;
+        let currentBottom = padding.top + plotHeight;
+        const segments = Array.isArray(row.segments)
+          ? row.segments.filter(segment => (Number(segment.height_svg) || 0) > 0)
+          : [];
+        const rects = [...segments].reverse().map(segment => {
+          const segmentHeight = Math.max(1, ((Number(segment.height_svg) || 0) / maxStack) * plotHeight);
+          const y = currentBottom - segmentHeight;
+          currentBottom = y;
+          return `<rect x="${(centerX - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${segmentHeight.toFixed(1)}" fill="${escapeAttribute(segment.color || '#52606d')}" />`;
+        }).join('');
+
+        return `
+          ${rects}
+          ${row.total_label ? `<text class="total-label" x="${centerX.toFixed(1)}" y="${Math.max(14, currentBottom - 8).toFixed(1)}" text-anchor="middle">${renderValue(row.total_label)}</text>` : ''}
+          <text x="${centerX.toFixed(1)}" y="${height - 16}" text-anchor="middle">${renderValue(row.rok || '')}</text>
+        `;
+      }).join('');
+
+      return `
+        <div class="bar-chart-layout">
+          <svg class="bar-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(chartData.nazov || 'FinStat stĺpcový graf')}">
+            ${gridLines.map(y => `<line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" stroke="#e6e5e5" stroke-dasharray="6 4" />`).join('')}
+            ${bars}
+          </svg>
+          <div class="chart-legend" aria-label="Legenda grafu">
+            ${legend.map(item => `
+              <div class="chart-legend-item">
+                <span class="chart-legend-swatch" style="background:${escapeAttribute(item.color || '#52606d')}"></span>
+                <span>${renderValue(item.label || '')}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFinstatPieChart(chartData) {
+      const slices = chartData && Array.isArray(chartData.body) ? chartData.body : [];
+      if (slices.length === 0) return '';
+
+      return `
+        <div class="pie-chart-layout">
+          <svg class="pie-chart" viewBox="0 0 284 230" role="img" aria-label="${escapeAttribute(chartData.nazov || 'FinStat koláčový graf')}" preserveAspectRatio="xMidYMid meet">
+            ${slices.map(slice => slice.path ? `<path d="${escapeAttribute(slice.path)}" fill="${escapeAttribute(slice.color || '#52606d')}" transform="translate(4,67) scale(1.08) translate(-11,-7)" />` : '').join('')}
+          </svg>
+          <div class="pie-legend" aria-label="Legenda grafu">
+            ${slices.map(slice => `
+              <div class="pie-legend-item">
+                <span class="chart-legend-swatch" style="background:${escapeAttribute(slice.color || '#52606d')}"></span>
+                <span>${renderValue(slice.label || '')}</span>
+                <span class="pie-legend-value">${renderValue(slice.value_label || '')}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFinstatChart(chartData) {
+      if (!chartData || typeof chartData !== 'object') return '';
+      if (chartData.typ === 'bar') return renderFinstatBarChart(chartData);
+      if (chartData.typ === 'pie') return renderFinstatPieChart(chartData);
+      return renderFinstatLineChart(chartData);
+    }
+
+    function renderFinstatGraph(graph, index) {
+      const title = graph.nazov || (graph.chart_data && graph.chart_data.nazov) || `Graf ${index + 1}`;
+      const isWide = graph.chart_data && graph.chart_data.typ === 'bar';
+      const chart = graph.chart_data ? renderFinstatChart(graph.chart_data) : '';
+      const fallbackImage = graph.image
+        ? `<img src="${escapeAttribute(graph.image)}" alt="${escapeAttribute(title)}" loading="lazy" />`
+        : '';
+
+      return `
+        <article class="finstat-graph ${isWide ? 'wide' : ''}">
+          <h4 class="finstat-graph-title">${renderValue(title)}</h4>
+          ${chart || fallbackImage || '<div class="notice">Graf sa nepodarilo vykresliť.</div>'}
+        </article>
+      `;
+    }
+
     function renderFinstatGraphs(graphs) {
       if (!Array.isArray(graphs) || graphs.length === 0) {
         return '<div class="notice">FinStat grafy sa nepodarilo načítať.</div>';
@@ -617,12 +895,7 @@ INDEX_HTML = """<!doctype html>
         <section class="finstat-graphs" aria-label="FinStat grafy">
           <h3 class="finstat-graphs-title">FinStat grafy</h3>
           <div class="finstat-graph-list">
-            ${graphs.map((graph, index) => `
-              <article class="finstat-graph">
-                <h4 class="finstat-graph-title">${renderValue(graph.nazov || `Graf ${index + 1}`)}</h4>
-                <img src="${escapeAttribute(graph.image)}" alt="${escapeAttribute(graph.nazov || `FinStat graf ${index + 1}`)}" loading="lazy" />
-              </article>
-            `).join('')}
+            ${graphs.map((graph, index) => renderFinstatGraph(graph, index)).join('')}
           </div>
         </section>
       `;

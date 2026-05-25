@@ -4,6 +4,9 @@ import time
 import json
 import traceback
 import re
+import builtins
+from datetime import datetime
+
 import requests
 import urllib3
 
@@ -30,6 +33,18 @@ SELENIUM_URL = os.getenv("SELENIUM_URL")
 # ============================================================
 # HELPERS
 # ============================================================
+
+_original_print = builtins.print
+
+
+def print(*args, **kwargs):
+    if args and isinstance(args[0], str):
+        match = re.match(r"^(\[(?:INFO|WARN|ERROR|SUCCESS|FATAL)\])\s*(.*)$", args[0])
+        if match:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            args = (f"{match.group(1)} {timestamp} {match.group(2)}", *args[1:])
+    return _original_print(*args, **kwargs)
+
 
 def create_driver(max_attempts=10, delay=3):
     options = Options()
@@ -596,6 +611,336 @@ def finstat_scrape(input_ico: str) -> dict:
     return result
 
 
+def parse_euro_label(label: str):
+    normalized = normalize_text(label).replace("\xa0", " ")
+    match = re.search(r"-?\d[\d ]*(?:[,.]\d+)?", normalized)
+    if not match:
+        return None
+
+    value = float(match.group(0).replace(" ", "").replace(",", "."))
+    lowered = normalized.lower()
+    if "mld" in lowered:
+        value *= 1_000_000_000
+    elif "mil" in lowered:
+        value *= 1_000_000
+    elif "tis" in lowered:
+        value *= 1_000
+    return value
+
+
+def euro_label_unit(label: str) -> str:
+    lowered = normalize_text(label).lower()
+    if "mld" in lowered:
+        return "mld.€"
+    if "mil" in lowered:
+        return "mil.€"
+    if "tis" in lowered:
+        return "tis.€"
+    return "€"
+
+
+def format_euro_label(value: float, unit: str) -> str:
+    divisor = 1
+    if unit.startswith("mld"):
+        divisor = 1_000_000_000
+    elif unit.startswith("mil"):
+        divisor = 1_000_000
+    elif unit.startswith("tis"):
+        divisor = 1_000
+
+    amount = value / divisor
+    formatted = f"{amount:.2f}".replace(".", ",")
+    return f"~{formatted} {unit}"
+
+
+def estimate_missing_chart_values(points: list[dict]) -> None:
+    known = [point for point in points if isinstance(point.get("value"), (int, float))]
+    if len(known) < 2:
+        return
+
+    labels = [point.get("value_label", "") for point in known if point.get("value_label")]
+    unit = euro_label_unit(labels[0]) if labels else "€"
+
+    y_values = [point["y_svg"] for point in known]
+    value_values = [point["value"] for point in known]
+    y_mean = sum(y_values) / len(y_values)
+    value_mean = sum(value_values) / len(value_values)
+    denominator = sum((y_value - y_mean) ** 2 for y_value in y_values)
+    if denominator == 0:
+        return
+
+    slope = sum((point["y_svg"] - y_mean) * (point["value"] - value_mean) for point in known) / denominator
+    intercept = value_mean - slope * y_mean
+
+    for point in points:
+        if isinstance(point.get("value"), (int, float)):
+            continue
+        estimated_value = slope * point["y_svg"] + intercept
+        point["value"] = estimated_value
+        point["value_label"] = format_euro_label(estimated_value, unit)
+        point["value_estimated"] = True
+
+
+def parse_translate(transform: str | None) -> tuple[float, float]:
+    if not transform:
+        return 0.0, 0.0
+    match = re.search(r"translate\(([-\d.]+)(?:[, ]+([-\d.]+))?\)", transform)
+    if not match:
+        return 0.0, 0.0
+    return float(match.group(1)), float(match.group(2) or 0)
+
+
+def parse_path_points(path_data: str) -> list[dict]:
+    tokens = re.findall(r"[ML]\s*([-\d.]+)\s+([-\d.]+)", path_data or "")
+    points = []
+    for x_value, y_value in tokens:
+        point = {"x_svg": float(x_value), "y_svg": float(y_value)}
+        if not any(abs(existing["x_svg"] - point["x_svg"]) < 0.01 for existing in points):
+            points.append(point)
+    return points
+
+
+def chart_title_parts(svg) -> tuple[str, str]:
+    title = normalize_text(svg.select_one(".highcharts-title").get_text(" ", strip=True)) if svg.select_one(".highcharts-title") else "Graf"
+    subtitle = normalize_text(svg.select_one(".highcharts-subtitle").get_text(" ", strip=True)) if svg.select_one(".highcharts-subtitle") else ""
+    return title, subtitle
+
+
+def chart_years(svg) -> list[dict]:
+    years = []
+    for label in svg.select(".highcharts-xaxis-labels text"):
+        text = normalize_text(label.get_text(" ", strip=True))
+        if text:
+            years.append({"label": text, "x_svg": float(label.get("x", 0))})
+    return years
+
+
+def parse_series_index(class_names) -> int | None:
+    if isinstance(class_names, str):
+        class_names = class_names.split()
+    for class_name in class_names or []:
+        match = re.fullmatch(r"highcharts-series-(\d+)", class_name)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def finstat_bar_chart_data_from_svg(svg, title: str, subtitle: str, years: list[dict]) -> dict | None:
+    legend = []
+    legend_by_index = {}
+    for item in svg.select(".highcharts-legend-item"):
+        series_index = parse_series_index(item.get("class", []))
+        if series_index is None:
+            continue
+        label = normalize_text(item.select_one("text").get_text(" ", strip=True)) if item.select_one("text") else f"Séria {series_index + 1}"
+        swatch = item.select_one("rect.highcharts-point") or item.select_one("rect")
+        color = swatch.get("fill", "#52606d") if swatch else "#52606d"
+        legend_item = {"index": series_index, "label": label, "color": color}
+        legend.append(legend_item)
+        legend_by_index[series_index] = legend_item
+
+    if not legend or not years:
+        return None
+
+    year_rows = [
+        {"rok": year["label"], "x_svg": year["x_svg"], "segments": []}
+        for year in years
+    ]
+
+    for group in svg.select(".highcharts-series.highcharts-column-series"):
+        class_names = group.get("class", [])
+        if isinstance(class_names, str):
+            class_names = class_names.split()
+        if "highcharts-markers" in class_names:
+            continue
+        series_index = parse_series_index(class_names)
+        if series_index is None or series_index not in legend_by_index:
+            continue
+        translate_x, translate_y = parse_translate(group.get("transform"))
+        legend_item = legend_by_index[series_index]
+        for rect in group.select("rect.highcharts-point"):
+            width = float(rect.get("width", 0) or 0)
+            height = float(rect.get("height", 0) or 0)
+            x_svg = float(rect.get("x", 0) or 0) + translate_x + width / 2
+            y_svg = float(rect.get("y", 0) or 0) + translate_y
+            nearest = min(year_rows, key=lambda row: abs(row["x_svg"] - x_svg))
+            nearest["segments"].append({
+                "label": legend_item["label"],
+                "color": rect.get("fill") or legend_item["color"],
+                "height_svg": height,
+                "y_svg": y_svg,
+                "series_index": series_index,
+            })
+
+    stack_group = svg.select_one(".highcharts-stack-labels")
+    stack_translate_x, stack_translate_y = parse_translate(stack_group.get("transform") if stack_group else None)
+    for label in svg.select(".highcharts-stack-labels text"):
+        text_nodes = [normalize_text(node.get_text(" ", strip=True)) for node in label.select("tspan:not(.highcharts-text-outline)")]
+        text_value = next((item for item in text_nodes if item), normalize_text(label.get_text(" ", strip=True)))
+        if not text_value:
+            continue
+        x_svg = float(label.get("x", 0) or 0) + stack_translate_x
+        nearest = min(year_rows, key=lambda row: abs(row["x_svg"] - x_svg))
+        nearest["total_label"] = text_value
+        nearest["total_value"] = parse_euro_label(text_value)
+        nearest["total_y_svg"] = float(label.get("y", 0) or 0) + stack_translate_y
+
+    for row in year_rows:
+        row["segments"].sort(key=lambda segment: segment["series_index"])
+        row["stack_height_svg"] = sum(segment["height_svg"] for segment in row["segments"])
+
+    if not any(row["segments"] for row in year_rows):
+        return None
+
+    return {
+        "nazov": title,
+        "podnazov": subtitle,
+        "typ": "bar",
+        "legend": sorted(legend, key=lambda item: item["index"]),
+        "body": year_rows,
+    }
+
+
+def parse_highcharts_color_index(class_names) -> int | None:
+    if isinstance(class_names, str):
+        class_names = class_names.split()
+    for class_name in class_names or []:
+        match = re.fullmatch(r"highcharts-color-(\d+)", class_name)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def finstat_pie_chart_data_from_container(soup: BeautifulSoup, svg, title: str, subtitle: str) -> dict | None:
+    slices_by_index = {}
+    for path in svg.select(".highcharts-pie-series path.highcharts-point"):
+        color_index = parse_highcharts_color_index(path.get("class", []))
+        if color_index is None:
+            continue
+        slices_by_index[color_index] = {
+            "index": color_index,
+            "color": path.get("fill", "#52606d"),
+            "path": path.get("d", ""),
+        }
+
+    if not slices_by_index:
+        return None
+
+    legend = []
+    for item in soup.select(".graph-legend .item"):
+        name_element = item.select_one(".serieName")
+        value_element = item.select_one(".serieValue")
+        symbol = item.select_one(".symbol")
+        index_text = name_element.get("data-index") if name_element else None
+        if index_text is None or not index_text.isdigit():
+            continue
+        color_index = int(index_text)
+        label = normalize_text(name_element.get_text(" ", strip=True)) if name_element else f"Séria {color_index + 1}"
+        value_label = normalize_text(value_element.get_text(" ", strip=True)) if value_element else ""
+        style = symbol.get("style", "") if symbol else ""
+        color_match = re.search(r"background-color\s*:\s*([^;]+)", style)
+        color = color_match.group(1).strip() if color_match else slices_by_index.get(color_index, {}).get("color", "#52606d")
+        slice_data = slices_by_index.get(color_index, {"index": color_index, "path": ""})
+        slice_data.update({
+            "label": label,
+            "value_label": value_label,
+            "value": parse_euro_label(value_label),
+            "color": color,
+        })
+        legend.append(slice_data)
+
+    body = sorted(legend or slices_by_index.values(), key=lambda item: item.get("index", 0))
+    if not body:
+        return None
+
+    return {
+        "nazov": title,
+        "podnazov": subtitle,
+        "typ": "pie",
+        "body": body,
+    }
+
+
+def finstat_chart_data_from_svg(svg_html: str) -> dict | None:
+    soup = BeautifulSoup(svg_html, "lxml")
+    svg = soup.select_one("svg.highcharts-root") or soup.select_one("svg")
+    if not svg:
+        return None
+
+    title, subtitle = chart_title_parts(svg)
+    years = chart_years(svg)
+
+    if svg.select_one(".highcharts-pie-series"):
+        pie_chart = finstat_pie_chart_data_from_container(soup, svg, title, subtitle)
+        if pie_chart:
+            return pie_chart
+
+    if svg.select_one(".highcharts-column-series"):
+        bar_chart = finstat_bar_chart_data_from_svg(svg, title, subtitle, years)
+        if bar_chart:
+            return bar_chart
+
+    graph_path = None
+    for path in svg.select("path.highcharts-graph"):
+        class_names = path.get("class", [])
+        if isinstance(class_names, str):
+            class_names = class_names.split()
+        if "highcharts-zone-graph-0" in class_names or "highcharts-zone-graph-1" in class_names:
+            continue
+        graph_path = path
+        break
+    graph_path = graph_path or svg.select_one("path.highcharts-graph")
+    if not graph_path:
+        return None
+
+    translate_x, translate_y = parse_translate(graph_path.find_parent("g").get("transform") if graph_path.find_parent("g") else None)
+    points = parse_path_points(graph_path.get("d", ""))
+    if len(points) < 2:
+        return None
+
+    for index, point in enumerate(points):
+        point["x_svg"] += translate_x
+        point["y_svg"] += translate_y
+        if index < len(years):
+            point["rok"] = years[index]["label"]
+
+    label_candidates = []
+    labels_group = svg.select_one(".highcharts-data-labels")
+    labels_translate_x, labels_translate_y = parse_translate(labels_group.get("transform") if labels_group else None)
+    for label in svg.select(".highcharts-data-label"):
+        text_nodes = [normalize_text(node.get_text(" ", strip=True)) for node in label.select("tspan:not(.highcharts-text-outline)")]
+        text_value = next((item for item in text_nodes if item), "")
+        if not text_value:
+            continue
+        label_x, label_y = parse_translate(label.get("transform"))
+        # Highcharts positions the label by its left edge. This offset maps the visible label near its point.
+        estimated_point_x = labels_translate_x + label_x + 36
+        label_candidates.append({
+            "x_svg": estimated_point_x,
+            "y_svg": labels_translate_y + label_y,
+            "label": text_value,
+            "value": parse_euro_label(text_value),
+        })
+
+    unused_points = set(range(len(points)))
+    for candidate in label_candidates:
+        if not unused_points:
+            break
+        nearest_index = min(unused_points, key=lambda idx: abs(points[idx]["x_svg"] - candidate["x_svg"]))
+        points[nearest_index]["value_label"] = candidate["label"]
+        points[nearest_index]["value"] = candidate["value"]
+        unused_points.remove(nearest_index)
+
+    estimate_missing_chart_values(points)
+
+    return {
+        "nazov": title,
+        "podnazov": subtitle,
+        "typ": "line",
+        "body": points,
+    }
+
+
 def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
     print("[INFO] FinStat: snímam grafy...")
     url = f"https://finstat.sk/vyhladavanie?query={input_ico}"
@@ -605,9 +950,12 @@ def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
     time.sleep(3)
 
     graph_elements = driver.find_elements(By.CSS_SELECTOR, ".graph")
+    graph_names = ["Zisk", "Tržby", "Celkové Výnosy", "Aktíva", "Pasíva"]
     graphs = []
 
     for idx, element in enumerate(graph_elements, start=1):
+        if len(graphs) >= len(graph_names):
+            break
         try:
             if not element.is_displayed():
                 continue
@@ -633,9 +981,22 @@ def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
                 idx,
             )
 
+            graph_name = graph_names[len(graphs)]
+            chart_html = driver.execute_script(
+                """
+                const el = arguments[0];
+                const container = el.closest('.chart, .panel, .col-sm-6') || el;
+                return container.outerHTML;
+                """,
+                element,
+            ) or element.get_attribute("outerHTML") or ""
+            chart_data = finstat_chart_data_from_svg(chart_html)
+            if chart_data:
+                chart_data["nazov"] = graph_name
             graphs.append({
-                "nazov": normalize_text(str(title)),
+                "nazov": graph_name,
                 "image": f"data:image/png;base64,{element.screenshot_as_base64}",
+                "chart_data": chart_data,
             })
         except Exception as e:
             print(f"[WARN] FinStat: graf {idx} sa nepodarilo zosnímať: {type(e).__name__}: {e}")

@@ -1,6 +1,10 @@
 # RQ files
 
 zadanie.txt
+example.html
+
+# Testing files
+finstatapitest.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
