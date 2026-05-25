@@ -742,6 +742,7 @@ def parse_ruz_detail(driver) -> dict:
 # ============================================================
 
 NO_INFO_MESSAGE = "Na tomto portáli nie sú informácie o firme."
+AVAILABLE_SOURCES = {"orsr", "rpvs", "finstat", "ruz"}
 
 
 def no_info_result() -> dict:
@@ -778,14 +779,12 @@ def run_portal_scrape(portal_name: str, scrape_func) -> dict:
         return no_info_result()
 
 
-def scrape_subject(ico: str) -> dict:
-    subjekt = {
-        "ico": ico,
-        "orsr": no_info_result(),
-        "rpvs": no_info_result(),
-        "finstat": no_info_result(),
-        "ruz": no_info_result()
-    }
+def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
+    selected_sources = sources or AVAILABLE_SOURCES
+    subjekt = {"ico": ico}
+
+    for source in selected_sources:
+        subjekt[source] = no_info_result()
 
     driver = None
 
@@ -812,10 +811,14 @@ def scrape_subject(ico: str) -> dict:
             result["grafy"] = finstat_graph_screenshots(driver, wait, ico)
             return result
 
-        subjekt["orsr"] = run_portal_scrape("ORSR", scrape_orsr)
-        subjekt["rpvs"] = run_portal_scrape("RPVS", scrape_rpvs)
-        subjekt["finstat"] = run_portal_scrape("FinStat", scrape_finstat)
-        subjekt["ruz"] = run_portal_scrape("RUZ", scrape_ruz)
+        if "orsr" in selected_sources:
+            subjekt["orsr"] = run_portal_scrape("ORSR", scrape_orsr)
+        if "rpvs" in selected_sources:
+            subjekt["rpvs"] = run_portal_scrape("RPVS", scrape_rpvs)
+        if "finstat" in selected_sources:
+            subjekt["finstat"] = run_portal_scrape("FinStat", scrape_finstat)
+        if "ruz" in selected_sources:
+            subjekt["ruz"] = run_portal_scrape("RUZ", scrape_ruz)
 
         return subjekt
 

@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from starlette.concurrency import run_in_threadpool
 
-from main import scrape_subject
+from main import AVAILABLE_SOURCES, scrape_subject
 
 
 app = FastAPI(title="ICO Scraper", version="1.0.0")
@@ -73,6 +73,38 @@ INDEX_HTML = """<!doctype html>
       gap: 10px;
       align-items: center;
       flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .source-controls {
+      width: 100%;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .source-toggle {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #cbd2d9;
+      border-radius: 6px;
+      padding: 0 10px;
+      background: white;
+      color: #323f4b;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .source-toggle input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: #0f766e;
     }
 
     label {
@@ -329,9 +361,12 @@ INDEX_HTML = """<!doctype html>
       body { padding: 18px; }
       .topbar { align-items: stretch; flex-direction: column; }
       h1 { font-size: 26px; }
-      form { align-items: stretch; }
+      form { align-items: stretch; justify-content: stretch; }
       label { width: 100%; }
       input, button { width: 100%; }
+      .source-controls { justify-content: stretch; }
+      .source-toggle { flex: 1 1 calc(50% - 8px); }
+      .source-toggle input { width: 16px; }
       .field-grid { grid-template-columns: 1fr; }
       .field-label { padding-bottom: 2px; border-bottom: 0; }
       .field-value { padding-top: 2px; }
@@ -349,6 +384,12 @@ INDEX_HTML = """<!doctype html>
         <label for="ico">IČO</label>
         <input id="ico" name="ico" inputmode="numeric" autocomplete="off" pattern="[0-9]{8}" maxlength="8" placeholder="36785512" required />
         <button id="submit" type="submit">Vyhľadať</button>
+        <div class="source-controls" aria-label="Zdroje informácií">
+          <label class="source-toggle"><input type="checkbox" name="source" value="orsr" checked /> ORSR</label>
+          <label class="source-toggle"><input type="checkbox" name="source" value="rpvs" checked /> RPVS</label>
+          <label class="source-toggle"><input type="checkbox" name="source" value="finstat" checked /> FinStat</label>
+          <label class="source-toggle"><input type="checkbox" name="source" value="ruz" checked /> RÚZ</label>
+        </div>
       </form>
     </section>
     <div class="status" id="status"></div>
@@ -365,6 +406,7 @@ INDEX_HTML = """<!doctype html>
     const statusEl = document.querySelector('#status');
     const tabs = document.querySelector('#tabs');
     const results = document.querySelector('#results');
+    const sourceInputs = Array.from(document.querySelectorAll('input[name="source"]'));
     let latestRawJson = '';
     let latestData = null;
 
@@ -396,6 +438,12 @@ INDEX_HTML = """<!doctype html>
       return categoryLabels[key] || key
         .replaceAll('_', ' ')
         .replace(/\\b\\w/g, letter => letter.toUpperCase());
+    }
+
+    function selectedSources() {
+      return sourceInputs
+        .filter(input => input.checked)
+        .map(input => input.value);
     }
 
     function clearResults(message = 'Výsledky sa zobrazia po vyhľadaní IČO.') {
@@ -484,7 +532,7 @@ INDEX_HTML = """<!doctype html>
             <div class="field-label">Deň vzniku</div>
             <div class="field-value">${renderValue(foundingDay)}</div>
           </div>
-          ${renderFinstatGraphs(finstat.grafy || [])}
+          ${'finstat' in data ? renderFinstatGraphs(finstat.grafy || []) : ''}
         </section>
       `;
     }
@@ -682,13 +730,21 @@ INDEX_HTML = """<!doctype html>
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const ico = input.value.trim();
+      const sources = selectedSources();
+      if (sources.length === 0) {
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Vyberte aspoň jeden zdroj informácií.';
+        clearResults();
+        return;
+      }
       statusEl.className = 'status';
       statusEl.textContent = 'Spracúvam požiadavku...';
       button.disabled = true;
       clearResults('Čakám na výsledok zo zdrojov...');
 
       try {
-        const response = await fetch(`/scrape?ico=${encodeURIComponent(ico)}`);
+        const params = new URLSearchParams({ ico, sources: sources.join(',') });
+        const response = await fetch(`/scrape?${params.toString()}`);
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data.detail || 'Požiadavka zlyhala.');
@@ -776,6 +832,19 @@ def normalize_ico(ico: str) -> str:
     return normalized
 
 
+def normalize_sources(sources: str | None) -> set[str]:
+    if not sources:
+        return set(AVAILABLE_SOURCES)
+
+    selected = {source.strip().lower() for source in sources.split(",") if source.strip()}
+    invalid = selected - AVAILABLE_SOURCES
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Neplatné zdroje: {', '.join(sorted(invalid))}.")
+    if not selected:
+        raise HTTPException(status_code=400, detail="Vyberte aspoň jeden zdroj informácií.")
+    return selected
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
     return INDEX_HTML
@@ -805,11 +874,15 @@ async def export_xlsx(request: Request) -> StreamingResponse:
 
 
 @app.get("/scrape")
-async def scrape(ico: str = Query(..., description="Slovak company IČO")) -> dict:
+async def scrape(
+    ico: str = Query(..., description="Slovak company IČO"),
+    sources: str | None = Query(None, description="Comma-separated source keys"),
+) -> dict:
     normalized_ico = normalize_ico(ico)
+    selected_sources = normalize_sources(sources)
 
     async with _scrape_limit:
         try:
-            return await run_in_threadpool(scrape_subject, normalized_ico)
+            return await run_in_threadpool(scrape_subject, normalized_ico, selected_sources)
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Scraping zlyhal: {type(exc).__name__}: {exc}") from exc
