@@ -111,17 +111,16 @@ def compact_statutory_person(lines: list[str]) -> list[str]:
     first_line = " ".join(lines[:4]).strip()
     result.append(normalize_text(first_line))
 
-    # 2. Ulica + číslo
+    # 2. Adresa: ulica + číslo, mesto + PSČ
+    address_parts = []
     if len(lines) >= 6:
-        address_1 = f"{lines[4]} {lines[5]}"
-        result.append(normalize_text(address_1))
-
-    # 3. Mesto + PSČ
+        address_parts.append(normalize_text(f"{lines[4]} {lines[5]}"))
     if len(lines) >= 8:
-        address_2 = f"{lines[6]} {lines[7]}"
-        result.append(normalize_text(address_2))
+        address_parts.append(normalize_text(f"{lines[6]} {lines[7]}"))
+    if address_parts:
+        result.append(", ".join(address_parts))
 
-    # 4. Vznik funkcie + (od: ...)
+    # 3. Vznik funkcie + (od: ...)
     if len(lines) >= 10:
         function_line = f"{lines[8]} {lines[9]}"
         result.append(normalize_text(function_line))
@@ -199,6 +198,27 @@ def compact_raw_section(section_rows: list[list[str]]) -> list[list[str]]:
         cleaned_rows.append(cleaned)
 
     return cleaned_rows
+
+
+def compact_akcie_section(section_rows: list[list[str]]) -> list[list[str]]:
+    compacted_rows = []
+
+    for row in section_rows:
+        cleaned = [normalize_text(item) for item in row if normalize_text(item)]
+        compacted = []
+        index = 0
+        while index < len(cleaned):
+            current = cleaned[index]
+            next_value = cleaned[index + 1] if index + 1 < len(cleaned) else ""
+            if current.startswith("Menovitá hodnota") and next_value == "EUR":
+                compacted.append(normalize_text(f"{current} {next_value}"))
+                index += 2
+                continue
+            compacted.append(current)
+            index += 1
+        compacted_rows.append(compacted)
+
+    return compacted_rows
 
 def clean_value(text: str) -> str:
     if not text:
@@ -391,7 +411,7 @@ def parse_orsr_detail(driver) -> dict:
     ]
 
     # Akcie
-    result["akcie"] = parse_orsr_section_by_label(soup, "Akcie")
+    result["akcie"] = compact_akcie_section(parse_orsr_section_by_label(soup, "Akcie"))
 
     # Akcionár
     akcionar_raw = parse_orsr_section_by_label(soup, "Akcionár")
