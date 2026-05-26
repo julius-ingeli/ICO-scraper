@@ -5,6 +5,7 @@ import json
 import traceback
 import re
 import builtins
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import requests
@@ -413,7 +414,7 @@ def rpvs_search_company(driver, wait, ico: str):
     driver.get(RPVS_URL)
 
     wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-    time.sleep(2)
+    #time.sleep(2)
 
     rpvs_input = wait.until(
         EC.presence_of_element_located((By.ID, "partner_hladat_text"))
@@ -426,7 +427,7 @@ def rpvs_search_company(driver, wait, ico: str):
     wait.until(
         EC.presence_of_element_located((By.ID, "table-VyhladavaniePartnera"))
     )
-    time.sleep(2)
+    #time.sleep(2)
 
 
 def rpvs_open_first_result(driver, wait):
@@ -947,7 +948,7 @@ def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
 
     driver.get(url)
     wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-    time.sleep(3)
+    #time.sleep(3)
 
     graph_elements = driver.find_elements(By.CSS_SELECTOR, ".graph")
     graph_names = ["Zisk", "Tržby", "Celkové Výnosy", "Aktíva", "Pasíva"]
@@ -993,9 +994,12 @@ def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
             chart_data = finstat_chart_data_from_svg(chart_html)
             if chart_data:
                 chart_data["nazov"] = graph_name
+                image = None
+            else:
+                image = f"data:image/png;base64,{element.screenshot_as_base64}"
             graphs.append({
                 "nazov": graph_name,
-                "image": f"data:image/png;base64,{element.screenshot_as_base64}",
+                "image": image,
                 "chart_data": chart_data,
             })
         except Exception as e:
@@ -1329,8 +1333,96 @@ def run_portal_scrape(portal_name: str, scrape_func) -> dict:
         return no_info_result()
 
 
+def browser_scrape(scrape_func):
+    driver = None
+    try:
+        driver = create_driver()
+        wait = WebDriverWait(driver, 20)
+        return scrape_func(driver, wait)
+    finally:
+        if driver:
+            driver.quit()
+
+
+def scrape_subject_parallel(ico: str, selected_sources: set[str]) -> dict:
+    subjekt = {"ico": ico}
+    for source in selected_sources:
+        subjekt[source] = no_info_result()
+
+    def scrape_orsr_browser(driver, wait):
+        orsr_search_company(driver, wait, ico)
+        orsr_open_first_result(driver, wait)
+        return parse_orsr_detail(driver)
+
+    def scrape_rpvs_browser(driver, wait):
+        rpvs_search_company(driver, wait, ico)
+        rpvs_open_first_result(driver, wait)
+        return parse_rpvs_detail(driver)
+
+    def scrape_ruz_browser(driver, wait):
+        ruz_search_company(driver, wait, ico)
+        detail = parse_ruz_detail(driver)
+
+        initial_soup = BeautifulSoup(driver.page_source, "lxml")
+        annual_reports = parse_ruz_all_wrappers(
+            initial_soup,
+            limit=5,
+            wrapper_selector="#wrapper-ANNUAL_REPORT",
+        )
+
+        if not annual_reports and ruz_open_annual_reports(driver):
+            annual_soup = BeautifulSoup(driver.page_source, "lxml")
+            annual_reports = parse_ruz_all_wrappers(
+                annual_soup,
+                limit=5,
+                wrapper_selector="#wrapper-ANNUAL_REPORT",
+            )
+
+        detail["vyrocne_spravy"] = annual_reports
+        return detail
+
+    def scrape_finstat_parallel():
+        result = finstat_scrape(ico)
+        try:
+            result["grafy"] = browser_scrape(lambda driver, wait: finstat_graph_screenshots(driver, wait, ico))
+        except Exception as e:
+            print(f"[WARN] FinStat: grafy sa nepodarilo získať: {type(e).__name__}: {e}")
+            if os.getenv("DEBUG_PORTAL_ERRORS") == "1":
+                traceback.print_exc()
+            result["grafy"] = []
+        return result
+
+    tasks = {}
+    if "orsr" in selected_sources:
+        tasks["orsr"] = ("ORSR", lambda: browser_scrape(scrape_orsr_browser))
+    if "rpvs" in selected_sources:
+        tasks["rpvs"] = ("RPVS", lambda: browser_scrape(scrape_rpvs_browser))
+    if "finstat" in selected_sources:
+        tasks["finstat"] = ("FinStat", scrape_finstat_parallel)
+    if "ruz" in selected_sources:
+        tasks["ruz"] = ("RUZ", lambda: browser_scrape(scrape_ruz_browser))
+    if "crz" in selected_sources:
+        tasks["crz"] = ("CRZ", lambda: crz_scrape(ico))
+
+    max_workers = int(os.getenv("PARALLEL_PORTAL_WORKERS", str(min(len(tasks), 5) or 1)))
+    print(f"[INFO] Paralelné scrapovanie portálov zapnuté, workers={max_workers}.")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_source = {
+            executor.submit(run_portal_scrape, portal_name, scrape_func): source
+            for source, (portal_name, scrape_func) in tasks.items()
+        }
+        for future in as_completed(future_to_source):
+            source = future_to_source[future]
+            subjekt[source] = future.result()
+
+    return subjekt
+
+
 def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
     selected_sources = sources or AVAILABLE_SOURCES
+    if os.getenv("PARALLEL_PORTAL_SCRAPES") == "1":
+        return scrape_subject_parallel(ico, selected_sources)
+
     subjekt = {"ico": ico}
 
     for source in selected_sources:
