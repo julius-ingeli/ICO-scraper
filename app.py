@@ -211,6 +211,21 @@ INDEX_HTML = """<!doctype html>
       color: #1f2933;
     }
 
+    .source-attribution {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid #e4e7eb;
+      color: #52606d;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .source-attribution a {
+      color: #0f766e;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
     .summary-layout {
       display: grid;
       gap: 22px;
@@ -690,7 +705,7 @@ INDEX_HTML = """<!doctype html>
       }
 
       if (typeof value === 'object') {
-        const entries = Object.entries(value);
+        const entries = Object.entries(value).filter(([key]) => key !== '__source_url');
         if (entries.length === 0) return '<span>-</span>';
         return `<div class="field-grid nested">${entries.map(([key, child]) => `
           <div class="field-label">${formatKey(key)}</div>
@@ -1118,6 +1133,27 @@ INDEX_HTML = """<!doctype html>
       });
     }
 
+    function renderSourceAttribution(value) {
+      if (!value || typeof value !== 'object' || !value.__source_url || value.message) {
+        return '';
+      }
+
+      const url = value.__source_url;
+      return `
+        <div class="source-attribution">
+          Informácie boli vytiahnuté zo zdroja:
+          <a href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">${renderValue(url)}</a>
+        </div>
+      `;
+    }
+
+    function stripSourceMetadata(value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return value;
+      }
+      return Object.fromEntries(Object.entries(value).filter(([key]) => key !== '__source_url'));
+    }
+
     function renderRuz(value) {
       if (!value || value.message) {
         return renderValue(value);
@@ -1166,9 +1202,11 @@ INDEX_HTML = """<!doctype html>
         `;
       }
 
-      const displayValue = key === 'finstat' && value && typeof value === 'object'
-        ? Object.fromEntries(Object.entries(value).filter(([childKey]) => childKey !== 'grafy'))
-        : value;
+      const attribution = renderSourceAttribution(value);
+      const metadataFreeValue = stripSourceMetadata(value);
+      const displayValue = key === 'finstat' && metadataFreeValue && typeof metadataFreeValue === 'object'
+        ? Object.fromEntries(Object.entries(metadataFreeValue).filter(([childKey]) => childKey !== 'grafy'))
+        : metadataFreeValue;
       const body = key === 'ruz'
         ? renderRuz(displayValue)
         : key === 'crz' ? renderCrz(displayValue) : renderValue(displayValue);
@@ -1177,6 +1215,7 @@ INDEX_HTML = """<!doctype html>
         <section class="panel ${active ? 'active' : ''}" id="panel-${key}" role="tabpanel">
           <h2 class="panel-title">${formatKey(key)}</h2>
           ${body}
+          ${attribution}
         </section>
       `;
     }

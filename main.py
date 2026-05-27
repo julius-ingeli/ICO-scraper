@@ -396,7 +396,7 @@ def parse_orsr_detail(driver) -> dict:
     html = driver.page_source
     soup = BeautifulSoup(html, "lxml")
 
-    result = {}
+    result = {SOURCE_URL_FIELD: driver.current_url}
     result.update(parse_orsr_basic_info(soup))
 
     # Štatutárny orgán (špeciálne spracovanie)
@@ -470,6 +470,7 @@ def parse_rpvs_detail(driver) -> dict:
     soup = BeautifulSoup(html, "lxml")
 
     result = {
+        SOURCE_URL_FIELD: driver.current_url,
         "partner_verejneho_sektora": {},
         "opravnena_osoba": {},
         "konecni_uzivatelia_vyhod": []
@@ -568,11 +569,13 @@ def finstat_scrape(input_ico: str) -> dict:
 
     result = {
         "zakladne_udaje": {},
-        "financne_ukazovatele": {}
+        "financne_ukazovatele": {},
+        SOURCE_URL_FIELD: url,
     }
 
     response = requests.get(url, headers=headers, timeout=15, verify=False)
     response.raise_for_status()
+    result[SOURCE_URL_FIELD] = response.url
 
     soup = BeautifulSoup(response.text, "lxml")
 
@@ -1089,7 +1092,7 @@ def crz_scrape(input_ico: str, limit: int = 10) -> dict:
         if len(records) >= limit:
             break
 
-    return {"zmluvy": records}
+    return {"zmluvy": records, SOURCE_URL_FIELD: response.url}
 # ============================================================
 # RUZ
 # ============================================================
@@ -1098,7 +1101,7 @@ def ruz_search_company(driver, wait, ico: str):
     driver.get(RUZ_URL)
 
     wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-    time.sleep(2)
+    #time.sleep(2)
 
     print("[INFO] RUZ: hľadám input...")
 
@@ -1266,6 +1269,7 @@ def parse_ruz_detail(driver, annual_reports: list[dict] | None = None) -> dict:
     )
 
     result = {
+        SOURCE_URL_FIELD: driver.current_url,
         "uctovne_zavierky": statements,
         "vyrocne_spravy": annual_reports or [],
         "zaznamy": statements,
@@ -1317,6 +1321,7 @@ def parse_ruz_detail(driver, annual_reports: list[dict] | None = None) -> dict:
 
 NO_INFO_MESSAGE = "Na tomto portáli nie sú informácie o firme."
 AVAILABLE_SOURCES = {"orsr", "rpvs", "finstat", "ruz", "crz"}
+SOURCE_URL_FIELD = "__source_url"
 
 
 def no_info_result() -> dict:
@@ -1328,7 +1333,7 @@ def has_portal_data(value) -> bool:
         return False
 
     if isinstance(value, dict):
-        return any(has_portal_data(item) for item in value.values())
+        return any(has_portal_data(item) for key, item in value.items() if key != SOURCE_URL_FIELD)
 
     if isinstance(value, list):
         return any(has_portal_data(item) for item in value)
