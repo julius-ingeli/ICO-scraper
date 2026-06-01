@@ -473,7 +473,8 @@ def parse_rpvs_detail(driver) -> dict:
         SOURCE_URL_FIELD: driver.current_url,
         "partner_verejneho_sektora": {},
         "opravnena_osoba": {},
-        "konecni_uzivatelia_vyhod": []
+        "konecni_uzivatelia_vyhod": [],
+        "oznamenie_o_overeni_konecnych_uzivatelov_vyhod": {}
     }
 
     for panel in soup.select("div.panel.panel-default"):
@@ -522,6 +523,26 @@ def parse_rpvs_detail(driver) -> dict:
                 value = normalize_text(value_el.get_text(" ", strip=True))
 
                 result["opravnena_osoba"][key] = value
+
+        # ========================================================
+        # OZNÁMENIE O OVERENÍ KONEČNÝCH UŽÍVATEĽOV VÝHOD
+        # ========================================================
+        elif title == "Oznámenie o overení konečných užívateľoch výhod":
+            body = panel.select_one("div.panel-body")
+            if not body:
+                continue
+
+            for group in body.select("div.form-group"):
+                label_el = group.select_one("label")
+                value_el = group.select_one("p.form-control-static")
+
+                if not label_el or not value_el:
+                    continue
+
+                key = normalize_text(label_el.get_text(" ", strip=True))
+                value = normalize_text(value_el.get_text(" ", strip=True))
+
+                result["oznamenie_o_overeni_konecnych_uzivatelov_vyhod"][key] = value
 
         # ========================================================
         # KONEČNÍ UŽÍVATELIA VÝHOD

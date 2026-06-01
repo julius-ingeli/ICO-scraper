@@ -667,7 +667,8 @@ INDEX_HTML = """<!doctype html>
       ruz: 'RÚZ',
       crz: 'CRZ',
       raw: 'Export dát',
-      dolezite_ukazovatele: 'Dôležité ukazovatele'
+      dolezite_ukazovatele: 'Dôležité ukazovatele',
+      oznamenie_o_overeni_konecnych_uzivatelov_vyhod: 'Oznámenie o overení konečných užívateľov výhod'
     };
 
     function formatKey(key) {
