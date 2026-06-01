@@ -454,6 +454,15 @@ INDEX_HTML = """<!doctype html>
       overflow-wrap: anywhere;
     }
 
+    .field-note {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #edf1f5;
+      color: #52606d;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
     .nested {
       margin: 4px 0 0;
       padding-left: 14px;
@@ -657,7 +666,8 @@ INDEX_HTML = """<!doctype html>
       finstat: 'FinStat',
       ruz: 'RÚZ',
       crz: 'CRZ',
-      raw: 'Export dát'
+      raw: 'Export dát',
+      dolezite_ukazovatele: 'Dôležité ukazovatele'
     };
 
     function formatKey(key) {
@@ -677,6 +687,10 @@ INDEX_HTML = """<!doctype html>
       tabs.className = 'tabs';
       tabs.innerHTML = '';
       results.innerHTML = `<div class="empty-state">${message}</div>`;
+    }
+
+    function containsUnavailableInfo(value) {
+      return JSON.stringify(value || '').includes('Informácia nedostupná');
     }
 
     function renderValue(value) {
@@ -709,7 +723,12 @@ INDEX_HTML = """<!doctype html>
         if (entries.length === 0) return '<span>-</span>';
         return `<div class="field-grid nested">${entries.map(([key, child]) => `
           <div class="field-label">${formatKey(key)}</div>
-          <div class="field-value">${renderValue(child)}</div>
+          <div class="field-value">
+            ${renderValue(child)}
+            ${key === 'dolezite_ukazovatele' && containsUnavailableInfo(child)
+              ? '<div class="field-note">Informácie sú nedostupné kvôli free verzii Finstatu.</div>'
+              : ''}
+          </div>
         `).join('')}</div>`;
       }
 

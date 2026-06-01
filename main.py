@@ -555,6 +555,52 @@ def parse_rpvs_detail(driver) -> dict:
 # FINSTAT
 # ============================================================
 
+def finstat_parse_important_indicators(soup: BeautifulSoup) -> dict:
+    panel = None
+    for candidate in soup.select("div.panel"):
+        title = candidate.select_one(".panel-title")
+        title_text = normalize_text(title.get_text(" ", strip=True)) if title else ""
+        if "Dôležité udalosti" in title_text or "Dôležité ukazovatele" in title_text:
+            panel = candidate
+            break
+
+    if not panel:
+        panel = soup.select_one("#detail-risk-list")
+
+    if not panel:
+        return {}
+
+    indicators = {}
+    for item in panel.select("#detail-risk-list > li, ul.ul-list > li"):
+        label_element = item.select_one("strong") or item.select_one("a")
+        if not label_element:
+            continue
+
+        name = normalize_text(label_element.get_text(" ", strip=True))
+        if not name:
+            continue
+
+        if item.select_one(".ti-lock"):
+            indicators[name] = "Informácia nedostupná"
+            continue
+
+        item_copy = BeautifulSoup(str(item), "lxml")
+        copied_item = item_copy.select_one("li")
+        if not copied_item:
+            continue
+
+        copied_label = copied_item.select_one("strong") or copied_item.select_one("a")
+        if copied_label:
+            copied_label.decompose()
+        for icon in copied_item.select("i"):
+            icon.decompose()
+
+        value = normalize_text(copied_item.get_text(" ", strip=True))
+        indicators[name] = value or "-"
+
+    return indicators
+
+
 def finstat_scrape(input_ico: str) -> dict:
     print("[INFO] FinStat: scraping...")
     url = f"https://finstat.sk/vyhladavanie?query={input_ico}"
@@ -570,6 +616,7 @@ def finstat_scrape(input_ico: str) -> dict:
     result = {
         "zakladne_udaje": {},
         "financne_ukazovatele": {},
+        "dolezite_ukazovatele": {},
         SOURCE_URL_FIELD: url,
     }
 
@@ -631,6 +678,8 @@ def finstat_scrape(input_ico: str) -> dict:
 
                     if name:
                         result["financne_ukazovatele"][name] = value
+
+    result["dolezite_ukazovatele"] = finstat_parse_important_indicators(soup)
 
     return result
 
