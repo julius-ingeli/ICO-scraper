@@ -40,7 +40,7 @@ _original_print = builtins.print
 
 def print(*args, **kwargs):
     if args and isinstance(args[0], str):
-        match = re.match(r"^(\[(?:INFO|WARN|ERROR|SUCCESS|FATAL)\])\s*(.*)$", args[0])
+        match = re.match(r"^(\[(?:DEBUG|INFO|WARN|ERROR|SUCCESS|FATAL)\])\s*(.*)$", args[0])
         if match:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             args = (f"{match.group(1)} {timestamp} {match.group(2)}", *args[1:])
@@ -1117,24 +1117,50 @@ def absolute_crz_url(href: str) -> str:
     return f"https://www.crz.gov.sk/{href}"
 
 
-def crz_scrape(input_ico: str, limit: int = 10) -> dict:
-    print("[INFO] CRZ: scraping...")
-    response = requests.get(
-        CRZ_URL,
-        params={"search": input_ico},
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
-        },
-        timeout=20,
-        verify=False,
-    )
-    response.raise_for_status()
+def clean_company_name_for_search(name: str) -> str:
+    return normalize_text(re.sub(r"\s*\(od:\s*[^)]*\)", "", name or "", flags=re.IGNORECASE))
 
-    soup = BeautifulSoup(response.text, "lxml")
+
+def extract_company_name_from_subject(subject: dict) -> str:
+    direct_candidates = [
+        subject.get("orsr", {}).get("obchodne_meno"),
+        subject.get("finstat", {}).get("zakladne_udaje", {}).get("Obchodné meno"),
+        subject.get("finstat", {}).get("zakladne_udaje", {}).get("Názov"),
+        subject.get("ruz", {}).get("nazov"),
+        subject.get("ruz", {}).get("Názov"),
+        subject.get("rpvs", {}).get("partner_verejneho_sektora", {}).get("Názov"),
+        subject.get("rpvs", {}).get("partner_verejneho_sektora", {}).get("Obchodné meno"),
+        subject.get("rpvs", {}).get("partner_verejneho_sektora", {}).get("Meno / názov"),
+    ]
+
+    for candidate in direct_candidates:
+        cleaned = clean_company_name_for_search(candidate)
+        if cleaned:
+            return cleaned
+
+    name_keys = {"obchodné meno", "obchodne meno", "názov", "nazov", "meno / názov", "meno / nazov"}
+    for source, data in subject.items():
+        if source in {"ico", "crz"}:
+            continue
+        stack = [data]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, dict):
+                for key, value in current.items():
+                    if isinstance(value, (dict, list)):
+                        stack.append(value)
+                        continue
+                    if normalize_text(str(key)).casefold() in name_keys:
+                        cleaned = clean_company_name_for_search(value)
+                        if cleaned:
+                            return cleaned
+            elif isinstance(current, list):
+                stack.extend(current)
+
+    return ""
+
+
+def parse_crz_results(soup: BeautifulSoup, limit: int = 10) -> list[dict]:
     records = []
 
     for row in soup.select("table.table_list tbody tr"):
@@ -1162,7 +1188,135 @@ def crz_scrape(input_ico: str, limit: int = 10) -> dict:
         if len(records) >= limit:
             break
 
-    return {"zmluvy": records, SOURCE_URL_FIELD: response.url}
+    return records
+
+
+def crz_scrape(input_ico: str, limit: int = 10) -> dict:
+    print("[INFO] CRZ: scraping podľa IČO...")
+    response = requests.get(
+        CRZ_URL,
+        params={"search": input_ico},
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
+        timeout=20,
+        verify=False,
+    )
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "lxml")
+    records = parse_crz_results(soup, limit=limit)
+    return {"zmluvy": records, "vyhladavanie_podla": "ico", SOURCE_URL_FIELD: response.url}
+
+
+def crz_find_advanced_filter_button(driver):
+    selectors = [
+        (By.CSS_SELECTOR, "#topNav button.btn-toggle-search[data-bs-target='#collapseFilter']"),
+        (By.CSS_SELECTOR, "button.btn-toggle-search[data-bs-target='#collapseFilter']"),
+        (By.XPATH, "//button[@data-bs-target='#collapseFilter' and contains(normalize-space(.), 'Rozšírené')]")
+    ]
+
+    for by, selector in selectors:
+        print(f"[DEBUG] CRZ: skúšam advanced filter button selector: {selector}")
+        elements = driver.find_elements(by, selector)
+        print(f"[DEBUG] CRZ: advanced selector vrátil {len(elements)} elementov")
+        for element in elements:
+            if element.is_displayed() and element.is_enabled():
+                print(f"[DEBUG] CRZ: našiel som použiteľný advanced filter button cez selector: {selector}")
+                return element
+    print("[DEBUG] CRZ: advanced filter button sa nenašiel")
+    return None
+
+
+def crz_find_supplier_input(driver):
+    selectors = [
+        (By.CSS_SELECTOR, "#frm_filter_3_art_zs2"),
+        (By.CSS_SELECTOR, "input[name='art_zs2']"),
+        (By.XPATH, "//form[@id='frm_filter_3']//label[contains(normalize-space(.), 'Dodávateľ')]/ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' row ')][1]//input[not(@type='hidden')]"),
+        (By.XPATH, "//form[@id='frm_filter_3']//label[contains(normalize-space(.), 'Dodávateľ')]/parent::*//following-sibling::div[1]//input[not(@type='hidden')]"),
+        (By.XPATH, "//label[contains(normalize-space(.), 'Dodávateľ')]/following::input[not(@type='hidden')][1]"),
+        (By.XPATH, "//input[contains(@placeholder, 'Dodávateľ') or contains(@placeholder, 'Dodavatel')]"),
+    ]
+
+    for by, selector in selectors:
+        print(f"[DEBUG] CRZ: skúšam Dodávateľ input selector: {selector}")
+        elements = driver.find_elements(by, selector)
+        print(f"[DEBUG] CRZ: selector vrátil {len(elements)} elementov")
+        for element in elements:
+            if element.is_displayed() and element.is_enabled():
+                print(f"[DEBUG] CRZ: našiel som použiteľný Dodávateľ input cez selector: {selector}")
+                return element
+    print("[DEBUG] CRZ: Dodávateľ input sa nenašiel žiadnym selectorom")
+    return None
+
+
+def crz_scrape_by_company_name(driver, wait, company_name: str, limit: int = 10) -> dict:
+    print(f"[INFO] CRZ: scraping podľa dodávateľa: {company_name}")
+    print(f"[DEBUG] CRZ: otváram URL: {CRZ_URL}")
+    driver.get(CRZ_URL)
+
+    print("[DEBUG] CRZ: čakám na document.readyState == complete")
+    wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+    print(f"[DEBUG] CRZ: stránka načítaná, current_url={driver.current_url}")
+
+    print("[DEBUG] CRZ: kontrolujem, či je Dodávateľ input dostupný bez kliku na filter")
+    supplier_input = crz_find_supplier_input(driver)
+
+    if supplier_input:
+        print("[DEBUG] CRZ: Dodávateľ input je dostupný, filter neklikám")
+    else:
+        print("[DEBUG] CRZ: Dodávateľ input zatiaľ nie je dostupný, hľadám Rozšírené vyhľadávanie")
+        advanced_button = wait.until(lambda d: crz_find_advanced_filter_button(d))
+        expanded = advanced_button.get_attribute("aria-expanded")
+        print(f"[DEBUG] CRZ: advanced button nájdený, aria-expanded={expanded}")
+
+        if expanded != "true":
+            print("[DEBUG] CRZ: klikám na Rozšírené vyhľadávanie")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", advanced_button)
+            driver.execute_script("arguments[0].click();", advanced_button)
+        else:
+            print("[DEBUG] CRZ: filter je podľa aria-expanded už otvorený, neklikám")
+
+        print("[DEBUG] CRZ: čakám na Dodávateľ input po kontrole/otvorení filtra")
+        supplier_input = wait.until(lambda d: crz_find_supplier_input(d))
+    print("[DEBUG] CRZ: Dodávateľ input nájdený, idem ho vyplniť")
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", supplier_input)
+    driver.execute_script("arguments[0].focus();", supplier_input)
+    supplier_input.click()
+    supplier_input.send_keys(Keys.CONTROL, "a")
+    supplier_input.send_keys(Keys.BACKSPACE)
+    supplier_input.send_keys(company_name)
+    typed_value = driver.execute_script("return arguments[0].value;", supplier_input)
+    print(f"[DEBUG] CRZ: Dodávateľ input vyplnený hodnotou: {typed_value}")
+
+    print("[DEBUG] CRZ: hľadám ancestor form pre Dodávateľ input")
+    search_form = supplier_input.find_element(By.XPATH, "ancestor::form[1]")
+    form_id = search_form.get_attribute("id")
+    action = search_form.get_attribute("action")
+    print(f"[DEBUG] CRZ: submitujem form id={form_id}, action={action}")
+    driver.execute_script("arguments[0].requestSubmit ? arguments[0].requestSubmit() : arguments[0].submit();", search_form)
+
+    print("[DEBUG] CRZ: po submit čakám na document.readyState == complete")
+    wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+    print(f"[DEBUG] CRZ: po submit current_url={driver.current_url}")
+
+    print("[DEBUG] CRZ: čakám na výsledkové riadky table.table_list tbody tr")
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.table_list tbody tr")))
+    print("[DEBUG] CRZ: výsledkové riadky nájdené, parsujem HTML")
+
+    soup = BeautifulSoup(driver.page_source, "lxml")
+    records = parse_crz_results(soup, limit=limit)
+    print(f"[DEBUG] CRZ: počet naparsovaných zmlúv: {len(records)}")
+    return {
+        "zmluvy": records,
+        "vyhladavanie_podla": "dodavatel",
+        "hladany_dodavatel": company_name,
+        SOURCE_URL_FIELD: driver.current_url,
+    }
 # ============================================================
 # RUZ
 # ============================================================
@@ -1496,8 +1650,6 @@ def scrape_subject_parallel(ico: str, selected_sources: set[str]) -> dict:
         tasks["finstat"] = ("FinStat", scrape_finstat_parallel)
     if "ruz" in selected_sources:
         tasks["ruz"] = ("RUZ", lambda: browser_scrape(scrape_ruz_browser))
-    if "crz" in selected_sources:
-        tasks["crz"] = ("CRZ", lambda: crz_scrape(ico))
 
     max_workers = int(os.getenv("PARALLEL_PORTAL_WORKERS", str(min(len(tasks), 5) or 1)))
     print(f"[INFO] Paralelné scrapovanie portálov zapnuté, workers={max_workers}.")
@@ -1509,6 +1661,16 @@ def scrape_subject_parallel(ico: str, selected_sources: set[str]) -> dict:
         for future in as_completed(future_to_source):
             source = future_to_source[future]
             subjekt[source] = future.result()
+
+    if "crz" in selected_sources:
+        company_name = extract_company_name_from_subject(subjekt)
+        if company_name:
+            subjekt["crz"] = run_portal_scrape(
+                "CRZ",
+                lambda: browser_scrape(lambda driver, wait: crz_scrape_by_company_name(driver, wait, company_name))
+            )
+        else:
+            subjekt["crz"] = run_portal_scrape("CRZ", lambda: crz_scrape(ico))
 
     return subjekt
 
@@ -1579,6 +1741,20 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
                 result["grafy"] = []
             return result
 
+        def scrape_crz():
+            company_name = extract_company_name_from_subject(subjekt)
+            if not company_name:
+                return crz_scrape(ico)
+
+            driver, wait = ensure_browser()
+            try:
+                return crz_scrape_by_company_name(driver, wait, company_name)
+            except Exception as e:
+                print(f"[WARN] CRZ: vyhľadávanie podľa dodávateľa zlyhalo, skúšam IČO: {type(e).__name__}: {e}")
+                if os.getenv("DEBUG_PORTAL_ERRORS") == "1":
+                    traceback.print_exc()
+                return crz_scrape(ico)
+
         if "orsr" in selected_sources:
             subjekt["orsr"] = run_portal_scrape("ORSR", scrape_orsr)
         if "rpvs" in selected_sources:
@@ -1588,7 +1764,7 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
         if "ruz" in selected_sources:
             subjekt["ruz"] = run_portal_scrape("RUZ", scrape_ruz)
         if "crz" in selected_sources:
-            subjekt["crz"] = run_portal_scrape("CRZ", lambda: crz_scrape(ico))
+            subjekt["crz"] = run_portal_scrape("CRZ", scrape_crz)
 
         return subjekt
 
