@@ -76,7 +76,8 @@ INDEX_HTML = """<!doctype html>
       justify-content: flex-end;
     }
 
-    .source-controls {
+    .source-controls,
+    .crz-options {
       width: 100%;
       display: flex;
       justify-content: flex-end;
@@ -624,6 +625,9 @@ INDEX_HTML = """<!doctype html>
           <label class="source-toggle"><input type="checkbox" name="source" value="ruz" checked /> RÚZ</label>
           <label class="source-toggle"><input type="checkbox" name="source" value="crz" checked /> CRZ</label>
         </div>
+        <div class="crz-options" id="crz-options" aria-label="Nastavenia CRZ vyhľadávania">
+          <label class="source-toggle"><input id="crz-keep-legal-form" type="checkbox" checked /> CRZ: ponechať skratky (s.r.o, a.s. ...)</label>
+        </div>
       </form>
     </section>
     <div class="status" id="status"></div>
@@ -641,6 +645,8 @@ INDEX_HTML = """<!doctype html>
     const tabs = document.querySelector('#tabs');
     const results = document.querySelector('#results');
     const sourceInputs = Array.from(document.querySelectorAll('input[name="source"]'));
+    const crzOptions = document.querySelector('#crz-options');
+    const crzKeepLegalFormInput = document.querySelector('#crz-keep-legal-form');
     let latestRawJson = '';
     let latestData = null;
 
@@ -681,6 +687,11 @@ INDEX_HTML = """<!doctype html>
       return sourceInputs
         .filter(input => input.checked)
         .map(input => input.value);
+    }
+
+    function syncCrzOptionsVisibility() {
+      const crzSelected = sourceInputs.some(input => input.value === 'crz' && input.checked);
+      crzOptions.hidden = !crzSelected;
     }
 
     function clearResults(message = 'Výsledky sa zobrazia po vyhľadaní IČO.') {
@@ -1288,6 +1299,11 @@ INDEX_HTML = """<!doctype html>
       bindRuzTables();
     }
 
+    sourceInputs.forEach(sourceInput => {
+      sourceInput.addEventListener('change', syncCrzOptionsVisibility);
+    });
+    syncCrzOptionsVisibility();
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const ico = input.value.trim();
@@ -1305,6 +1321,9 @@ INDEX_HTML = """<!doctype html>
 
       try {
         const params = new URLSearchParams({ ico, sources: sources.join(',') });
+        if (sources.includes('crz') && !crzKeepLegalFormInput.checked) {
+          params.set('crz_omit_legal_form', '1');
+        }
         const response = await fetch(`/scrape?${params.toString()}`);
         const data = await response.json();
         if (!response.ok) {
@@ -1438,12 +1457,18 @@ async def export_xlsx(request: Request) -> StreamingResponse:
 async def scrape(
     ico: str = Query(..., description="Slovak company IČO"),
     sources: str | None = Query(None, description="Comma-separated source keys"),
+    crz_omit_legal_form: bool = Query(False, description="Remove legal-form suffixes from CRZ supplier-name searches"),
 ) -> dict:
     normalized_ico = normalize_ico(ico)
     selected_sources = normalize_sources(sources)
 
     async with _scrape_limit:
         try:
-            return await run_in_threadpool(scrape_subject, normalized_ico, selected_sources)
+            return await run_in_threadpool(
+                scrape_subject,
+                normalized_ico,
+                selected_sources,
+                crz_omit_legal_form=crz_omit_legal_form,
+            )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Scraping zlyhal: {type(exc).__name__}: {exc}") from exc

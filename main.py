@@ -1117,11 +1117,19 @@ def absolute_crz_url(href: str) -> str:
     return f"https://www.crz.gov.sk/{href}"
 
 
-def clean_company_name_for_search(name: str) -> str:
-    return normalize_text(re.sub(r"\s*\(od:\s*[^)]*\)", "", name or "", flags=re.IGNORECASE))
+def clean_company_name_for_search(name: str, omit_legal_form: bool = False) -> str:
+    cleaned = normalize_text(re.sub(r"\s*\(od:\s*[^)]*\)", "", name or "", flags=re.IGNORECASE))
+    if omit_legal_form:
+        cleaned = normalize_text(re.sub(
+            r"\s*,?\s*(?:s\.?\s*r\.?\s*o\.?|a\.?\s*s\.?|k\.?\s*s\.?|v\.?\s*o\.?\s*s\.?|j\.?\s*s\.?\s*a\.?)\s*$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ))
+    return cleaned
 
 
-def extract_company_name_from_subject(subject: dict) -> str:
+def extract_company_name_from_subject(subject: dict, omit_legal_form: bool = False) -> str:
     direct_candidates = [
         subject.get("orsr", {}).get("obchodne_meno"),
         subject.get("finstat", {}).get("zakladne_udaje", {}).get("Obchodné meno"),
@@ -1134,7 +1142,7 @@ def extract_company_name_from_subject(subject: dict) -> str:
     ]
 
     for candidate in direct_candidates:
-        cleaned = clean_company_name_for_search(candidate)
+        cleaned = clean_company_name_for_search(candidate, omit_legal_form=omit_legal_form)
         if cleaned:
             return cleaned
 
@@ -1151,7 +1159,7 @@ def extract_company_name_from_subject(subject: dict) -> str:
                         stack.append(value)
                         continue
                     if normalize_text(str(key)).casefold() in name_keys:
-                        cleaned = clean_company_name_for_search(value)
+                        cleaned = clean_company_name_for_search(value, omit_legal_form=omit_legal_form)
                         if cleaned:
                             return cleaned
             elif isinstance(current, list):
@@ -1593,7 +1601,7 @@ def browser_scrape(scrape_func):
             driver.quit()
 
 
-def scrape_subject_parallel(ico: str, selected_sources: set[str]) -> dict:
+def scrape_subject_parallel(ico: str, selected_sources: set[str], crz_omit_legal_form: bool = False) -> dict:
     subjekt = {"ico": ico}
     for source in selected_sources:
         subjekt[source] = no_info_result()
@@ -1663,7 +1671,7 @@ def scrape_subject_parallel(ico: str, selected_sources: set[str]) -> dict:
             subjekt[source] = future.result()
 
     if "crz" in selected_sources:
-        company_name = extract_company_name_from_subject(subjekt)
+        company_name = extract_company_name_from_subject(subjekt, omit_legal_form=crz_omit_legal_form)
         if company_name:
             subjekt["crz"] = run_portal_scrape(
                 "CRZ",
@@ -1675,10 +1683,10 @@ def scrape_subject_parallel(ico: str, selected_sources: set[str]) -> dict:
     return subjekt
 
 
-def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
+def scrape_subject(ico: str, sources: set[str] | None = None, crz_omit_legal_form: bool = False) -> dict:
     selected_sources = sources or AVAILABLE_SOURCES
     if os.getenv("PARALLEL_PORTAL_SCRAPES") == "1":
-        return scrape_subject_parallel(ico, selected_sources)
+        return scrape_subject_parallel(ico, selected_sources, crz_omit_legal_form=crz_omit_legal_form)
 
     subjekt = {"ico": ico}
 
@@ -1742,7 +1750,7 @@ def scrape_subject(ico: str, sources: set[str] | None = None) -> dict:
             return result
 
         def scrape_crz():
-            company_name = extract_company_name_from_subject(subjekt)
+            company_name = extract_company_name_from_subject(subjekt, omit_legal_form=crz_omit_legal_form)
             if not company_name:
                 return crz_scrape(ico)
 
