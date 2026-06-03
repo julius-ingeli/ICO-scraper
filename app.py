@@ -85,6 +85,10 @@ INDEX_HTML = """<!doctype html>
       flex-wrap: wrap;
     }
 
+    .crz-options[hidden] {
+      display: none;
+    }
+
     .source-toggle {
       height: 34px;
       display: inline-flex;
