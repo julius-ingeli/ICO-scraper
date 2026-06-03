@@ -220,6 +220,44 @@ def compact_akcie_section(section_rows: list[list[str]]) -> list[list[str]]:
 
     return compacted_rows
 
+
+def compact_predmet_podnikania_section(section_rows: list[list[str]]) -> list[str]:
+    compacted = []
+    for row in section_rows:
+        cleaned = [normalize_text(item) for item in row if normalize_text(item)]
+        if cleaned:
+            compacted.append(normalize_text(" ".join(cleaned)))
+    return compacted
+
+
+def compact_pravny_predchodca_section(section_rows: list[list[str]]) -> list[list[str]]:
+    compacted_rows = []
+
+    for row in section_rows:
+        cleaned = [normalize_text(item) for item in row if normalize_text(item)]
+        postal_index = next(
+            (index for index, item in enumerate(cleaned) if re.fullmatch(r"\d{3}\s?\d{2}", item)),
+            None,
+        )
+
+        if postal_index is not None and postal_index >= 3 and re.fullmatch(r"\d+[A-Za-z]?(/[0-9A-Za-z]+)?", cleaned[postal_index - 2]):
+            address_start = postal_index - 3
+            address = normalize_text(
+                f"{cleaned[address_start]} {cleaned[address_start + 1]}, {cleaned[address_start + 2]}, {cleaned[postal_index]}"
+            )
+            cleaned = cleaned[:address_start] + [address] + cleaned[postal_index + 1:]
+        elif postal_index is not None and postal_index >= 2:
+            address_start = postal_index - 2
+            address = normalize_text(
+                f"{cleaned[address_start]}, {cleaned[address_start + 1]}, {cleaned[postal_index]}"
+            )
+            cleaned = cleaned[:address_start] + [address] + cleaned[postal_index + 1:]
+
+        if cleaned:
+            compacted_rows.append(cleaned)
+
+    return compacted_rows
+
 def clean_value(text: str) -> str:
     if not text:
         return text
@@ -322,7 +360,8 @@ def parse_orsr_basic_info(soup: BeautifulSoup) -> dict:
         "Právna forma": "pravna_forma",
         "Predmet podnikania": "predmet_podnikania",
         "Výška základného imania": "vyska_zakladneho_imania",
-        "Dátum aktualizácie dát": "datum_aktualizacie_dat"
+        "Dátum aktualizácie dát": "datum_aktualizacie_dat",
+        "Dátum aktualizácie údajov": "datum_aktualizacie_dat"
     }
 
     for row in soup.select("tr"):
@@ -343,6 +382,16 @@ def parse_orsr_basic_info(soup: BeautifulSoup) -> dict:
             result["predmet_podnikania"].extend(items)
         else:
             result[key] = normalize_text(value_cell.get_text(" ", strip=True))
+
+    if not result.get("datum_aktualizacie_dat"):
+        page_text = soup.get_text(" ", strip=True)
+        match = re.search(
+            r"Dátum aktualizácie (?:dát|údajov)\D{0,40}(\d{1,2}\.\d{1,2}\.\d{4})",
+            page_text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            result["datum_aktualizacie_dat"] = match.group(1)
 
     return result
 
@@ -399,9 +448,25 @@ def parse_orsr_detail(driver) -> dict:
     result = {SOURCE_URL_FIELD: driver.current_url}
     result.update(parse_orsr_basic_info(soup))
 
+    predmet_podnikania = compact_predmet_podnikania_section(
+        parse_orsr_section_by_label(soup, "Predmet podnikania")
+    )
+    if predmet_podnikania:
+        result["predmet_podnikania"] = predmet_podnikania
+
     # Štatutárny orgán (špeciálne spracovanie)
     statutar = parse_orsr_statutarny_organ(soup)
     result.update(statutar)
+
+    # Právny predchodca
+    result["pravny_predchodca"] = compact_pravny_predchodca_section(
+        parse_orsr_section_by_label(soup, "Právny predchodca")
+    )
+
+    # Konanie menom spoločnosti
+    result["konanie_menom_spolocnosti"] = compact_raw_section(
+        parse_orsr_section_by_label(soup, "Konanie menom spoločnosti")
+    )
 
     # Dozorná rada
     dozorna_rada_raw = parse_orsr_section_by_label(soup, "Dozorná rada")
@@ -421,6 +486,9 @@ def parse_orsr_detail(driver) -> dict:
     result["dalsie_pravne_skutocnosti"] = parse_orsr_section_by_label(
         soup, "Ďalšie právne skutočnosti"
     )
+
+    datum_aktualizacie_dat = result.pop("datum_aktualizacie_dat", None)
+    result["datum_aktualizacie_dat"] = datum_aktualizacie_dat
 
     return result
 
