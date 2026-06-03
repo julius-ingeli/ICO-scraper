@@ -677,16 +677,62 @@ INDEX_HTML = """<!doctype html>
       ruz: 'RÚZ',
       crz: 'CRZ',
       raw: 'Export dát',
-      dolezite_ukazovatele: 'Dôležité ukazovatele',
-      oznamenie_o_overeni_konecnych_uzivatelov_vyhod: 'Oznámenie o overení konečných užívateľov výhod',
+      obchodne_meno: 'Obchodné meno',
+      sidlo: 'Sídlo',
+      den_zapisu: 'Deň zápisu',
+      pravna_forma: 'Právna forma',
+      predmet_podnikania: 'Predmet podnikania',
+      vyska_zakladneho_imania: 'Výška základného imania',
+      datum_aktualizacie_dat: 'Dátum aktualizácie dát',
+      typ_organu: 'Typ orgánu',
+      statutarny_organ: 'Štatutárny orgán',
       pravny_predchodca: 'Právny predchodca',
-      konanie_menom_spolocnosti: 'Konanie menom spoločnosti'
+      konanie_menom_spolocnosti: 'Konanie menom spoločnosti',
+      dozorna_rada: 'Dozorná rada',
+      akcionar: 'Akcionár',
+      dalsie_pravne_skutocnosti: 'Ďalšie právne skutočnosti',
+      partner_verejneho_sektora: 'Partner verejného sektora',
+      opravnena_osoba: 'Oprávnená osoba',
+      konecni_uzivatelia_vyhod: 'Koneční užívatelia výhod',
+      oznamenie_o_overeni_konecnych_uzivatelov_vyhod: 'Oznámenie o overení konečných užívateľov výhod',
+      zakladne_udaje: 'Základné údaje',
+      financne_ukazovatele: 'Finančné ukazovatele',
+      dolezite_ukazovatele: 'Dôležité ukazovatele',
+      grafy: 'Grafy',
+      uctovne_zavierky: 'Účtovné závierky',
+      vyrocne_spravy: 'Výročné správy',
+      zaznamy: 'Záznamy',
+      dokumenty: 'Dokumenty',
+      nazov: 'Názov',
+      typ: 'Typ',
+      zdroj: 'Zdroj',
+      url: 'URL',
+      zmluvy: 'Zmluvy',
+      datum: 'Dátum',
+      nazov_zmluvy: 'Názov zmluvy',
+      cislo_zmluvy: 'Číslo zmluvy',
+      link: 'Odkaz',
+      cena: 'Cena',
+      dodavatel: 'Dodávateľ',
+      odberatel: 'Odberateľ',
+      vyhladavanie_podla: 'Vyhľadávanie podľa',
+      hladany_dodavatel: 'Hľadaný dodávateľ',
+      nazov_suboru: 'Názov súboru',
+      podnazov: 'Podnázov',
+      chart_data: 'Dáta grafu',
+      value_label: 'Hodnota',
+      total_label: 'Celková hodnota',
+      total_value: 'Celková hodnota',
+      rok: 'Rok',
+      farba: 'Farba',
+      body: 'Dáta',
+      legend: 'Legenda'
     };
 
     function formatKey(key) {
-      return categoryLabels[key] || key
-        .replaceAll('_', ' ')
-        .replace(/\\b\\w/g, letter => letter.toUpperCase());
+      if (categoryLabels[key]) return categoryLabels[key];
+      const label = String(key).replaceAll('_', ' ');
+      return label.charAt(0).toLocaleUpperCase('sk-SK') + label.slice(1);
     }
 
     function selectedSources() {
