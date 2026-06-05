@@ -1237,6 +1237,21 @@ INDEX_HTML = """<!doctype html>
       return Object.fromEntries(Object.entries(value).filter(([key]) => key !== '__source_url'));
     }
 
+    function renderRpvs(value) {
+      if (!value || value.message) {
+        return renderValue(value);
+      }
+
+      const partner = value.partner_verejneho_sektora || {};
+      const rest = Object.fromEntries(
+        Object.entries(value).filter(([key]) => key !== 'partner_verejneho_sektora')
+      );
+      const partnerBlock = partner && Object.keys(partner).length > 0 ? renderValue(partner) : '';
+      const restBlock = rest && Object.keys(rest).length > 0 ? renderValue(rest) : '';
+
+      return `${partnerBlock}${restBlock}`;
+    }
+
     function renderRuz(value) {
       if (!value || value.message) {
         return renderValue(value);
@@ -1290,9 +1305,11 @@ INDEX_HTML = """<!doctype html>
       const displayValue = key === 'finstat' && metadataFreeValue && typeof metadataFreeValue === 'object'
         ? Object.fromEntries(Object.entries(metadataFreeValue).filter(([childKey]) => childKey !== 'grafy'))
         : metadataFreeValue;
-      const body = key === 'ruz'
-        ? renderRuz(displayValue)
-        : key === 'crz' ? renderCrz(displayValue) : renderValue(displayValue);
+      const body = key === 'rpvs'
+        ? renderRpvs(displayValue)
+        : key === 'ruz'
+          ? renderRuz(displayValue)
+          : key === 'crz' ? renderCrz(displayValue) : renderValue(displayValue);
 
       return `
         <section class="panel ${active ? 'active' : ''}" id="panel-${key}" role="tabpanel">
