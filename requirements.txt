@@ -7,4 +7,3 @@ lxml
 fastapi
 uvicorn[standard]
 openpyxl
-pillow
