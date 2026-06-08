@@ -1,17 +1,29 @@
 import asyncio
+import importlib.util
 import os
 import re
-from io import BytesIO
-from typing import Any
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
 from starlette.concurrency import run_in_threadpool
 
 from main import AVAILABLE_SOURCES, scrape_subject
 
+
+
+
+def load_xlsx_exporter():
+    module_path = Path(__file__).with_name("xslx-export.py")
+    spec = importlib.util.spec_from_file_location("xslx_export", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Nepodarilo sa načítať exporter: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+xlsx_exporter = load_xlsx_exporter()
 
 app = FastAPI(title="ICO Scraper", version="1.0.0")
 _scrape_limit = asyncio.Semaphore(int(os.getenv("MAX_CONCURRENT_SCRAPES", "1")))
@@ -1414,66 +1426,6 @@ INDEX_HTML = """<!doctype html>
 """
 
 
-def is_base64_image(value: Any) -> bool:
-    return isinstance(value, str) and value.startswith("data:image/")
-
-
-def flatten_value(value: Any, prefix: str = "") -> list[tuple[str, str]]:
-    rows: list[tuple[str, str]] = []
-
-    if is_base64_image(value):
-        return [(prefix or "image", "[image omitted]")]
-
-    if isinstance(value, dict):
-        if not value:
-            return [(prefix, "")]
-        for key, child in value.items():
-            child_prefix = f"{prefix}.{key}" if prefix else str(key)
-            rows.extend(flatten_value(child, child_prefix))
-        return rows
-
-    if isinstance(value, list):
-        if not value:
-            return [(prefix, "")]
-        for index, item in enumerate(value, start=1):
-            child_prefix = f"{prefix}[{index}]" if prefix else f"[{index}]"
-            rows.extend(flatten_value(item, child_prefix))
-        return rows
-
-    return [(prefix, "" if value is None else str(value))]
-
-
-def safe_sheet_name(name: str) -> str:
-    cleaned = re.sub(r"[\\/*?:\[\]]", "_", name)[:31].strip()
-    return cleaned or "Sheet"
-
-
-def build_xlsx(data: dict[str, Any]) -> BytesIO:
-    workbook = Workbook()
-    workbook.remove(workbook.active)
-
-    header_fill = PatternFill("solid", fgColor="E4E7EB")
-    headers = ("Pole", "Hodnota")
-
-    for section, value in data.items():
-        worksheet = workbook.create_sheet(safe_sheet_name(str(section)))
-        worksheet.append(headers)
-        for cell in worksheet[1]:
-            cell.font = Font(bold=True)
-            cell.fill = header_fill
-
-        for field, field_value in flatten_value(value):
-            worksheet.append((field, field_value))
-
-        worksheet.column_dimensions["A"].width = 42
-        worksheet.column_dimensions["B"].width = 90
-
-    output = BytesIO()
-    workbook.save(output)
-    output.seek(0)
-    return output
-
-
 def normalize_ico(ico: str) -> str:
     normalized = re.sub(r"\s+", "", ico)
     if not re.fullmatch(r"\d{8}", normalized):
@@ -1514,11 +1466,11 @@ async def export_xlsx(request: Request) -> StreamingResponse:
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="Export očakáva JSON objekt.")
 
-    output = await run_in_threadpool(build_xlsx, data)
+    output, filename = await run_in_threadpool(xlsx_exporter.build_template_xlsx, data)
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="ico-scraper-export.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
