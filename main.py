@@ -801,7 +801,7 @@ def euro_label_unit(label: str) -> str:
     return "€"
 
 
-def format_euro_label(value: float, unit: str) -> str:
+def format_euro_amount(value: float, unit: str, approximate: bool = False) -> str:
     divisor = 1
     if unit.startswith("mld"):
         divisor = 1_000_000_000
@@ -812,7 +812,76 @@ def format_euro_label(value: float, unit: str) -> str:
 
     amount = value / divisor
     formatted = f"{amount:.2f}".replace(".", ",")
-    return f"~{formatted} {unit}"
+    prefix = "~" if approximate else ""
+    return f"{prefix}{formatted} {unit}"
+
+
+def format_euro_label(value: float, unit: str) -> str:
+    return format_euro_amount(value, unit, approximate=True)
+
+
+def tooltip_value_label(text: str, fallback_value: float | None = None) -> str:
+    normalized = normalize_text(text).replace("\xa0", " ")
+    if not normalized:
+        return ""
+    matches = re.findall(r"-?\d[\d ]*(?:[,.]\d+)?\s*(?:mld\.?|mil\.?|tis\.?)?\s*€?", normalized, flags=re.IGNORECASE)
+    if not matches:
+        return ""
+
+    candidates = []
+    for match in matches:
+        candidate = normalize_text(match).strip()
+        if not candidate:
+            continue
+        if re.fullmatch(r"\d{4}", candidate):
+            continue
+        if fallback_value is not None:
+            parsed = parse_euro_label(candidate)
+            if parsed is not None:
+                candidates.append((abs(parsed - fallback_value), candidate))
+                continue
+        candidates.append((0, candidate))
+
+    if not candidates:
+        return ""
+    return min(candidates, key=lambda item: item[0])[1]
+
+
+def merge_highcharts_line_values(chart_data: dict | None, highcharts_points: list[dict] | None) -> None:
+    if not isinstance(chart_data, dict) or chart_data.get("typ") != "line":
+        return
+    points = chart_data.get("body")
+    if not isinstance(points, list) or not isinstance(highcharts_points, list):
+        return
+
+    by_year = {}
+    for item in highcharts_points:
+        if not isinstance(item, dict):
+            continue
+        year = normalize_text(item.get("rok") or item.get("category") or "")
+        if year:
+            by_year[year] = item
+
+    for index, point in enumerate(points):
+        if not isinstance(point, dict):
+            continue
+        year = normalize_text(point.get("rok") or "")
+        source = by_year.get(year) or (highcharts_points[index] if index < len(highcharts_points) and isinstance(highcharts_points[index], dict) else None)
+        if not source:
+            continue
+
+        value = source.get("value")
+        if isinstance(value, (int, float)):
+            point["value"] = float(value)
+
+        label = tooltip_value_label(str(source.get("tooltip") or ""), point.get("value") if isinstance(point.get("value"), (int, float)) else None)
+        if label:
+            point["value_label"] = label
+            point.pop("value_estimated", None)
+        elif isinstance(point.get("value"), (int, float)) and point.get("value_estimated"):
+            unit = euro_label_unit(str(point.get("value_label") or ""))
+            point["value_label"] = format_euro_amount(point["value"], unit, approximate=False)
+            point.pop("value_estimated", None)
 
 
 def estimate_missing_chart_values(points: list[dict]) -> None:
@@ -1103,6 +1172,68 @@ def finstat_chart_data_from_svg(svg_html: str) -> dict | None:
     }
 
 
+def finstat_highcharts_line_points(driver, element) -> list[dict]:
+    try:
+        points = driver.execute_script(
+            """
+            const el = arguments[0];
+            const Highcharts = window.Highcharts;
+            if (!Highcharts || !Array.isArray(Highcharts.charts)) return [];
+
+            const wrapper = el.closest('.chart, .panel, .col-sm-6, section, article, div') || el;
+            const charts = Highcharts.charts.filter(Boolean);
+            const chart = charts.find(candidate => {
+              if (!candidate || !candidate.renderTo) return false;
+              return candidate.renderTo === el ||
+                     el.contains(candidate.renderTo) ||
+                     candidate.renderTo.contains(el) ||
+                     wrapper.contains(candidate.renderTo);
+            });
+            if (!chart) return [];
+
+            const series = (chart.series || []).find(item => {
+              const type = String(item.type || '').toLowerCase();
+              return item.visible !== false &&
+                     Array.isArray(item.points) &&
+                     item.points.length > 0 &&
+                     !['pie', 'column', 'bar'].includes(type);
+            });
+            if (!series) return [];
+
+            return series.points.map((point, index) => {
+              let tooltip = '';
+              try {
+                if (chart.tooltip && typeof chart.tooltip.refresh === 'function') {
+                  chart.tooltip.refresh(point);
+                  const label = chart.tooltip.label && chart.tooltip.label.element;
+                  if (label) {
+                    const parts = Array.from(label.querySelectorAll('tspan'))
+                      .map(item => item.textContent || '')
+                      .filter(Boolean);
+                    tooltip = parts.length ? parts.join(' ') : (label.textContent || '');
+                  }
+                }
+              } catch (error) {}
+
+              const categories = chart.xAxis && chart.xAxis[0] && chart.xAxis[0].categories;
+              return {
+                index,
+                rok: String(point.category ?? point.name ?? (categories && categories[index]) ?? ''),
+                value: Number.isFinite(point.y) ? point.y : null,
+                tooltip,
+              };
+            });
+            """,
+            element,
+        )
+        return points if isinstance(points, list) else []
+    except Exception as e:
+        print(f"[WARN] FinStat: Highcharts hodnoty sa nepodarilo načítať: {type(e).__name__}: {e}")
+        if os.getenv("DEBUG_PORTAL_ERRORS") == "1":
+            traceback.print_exc()
+        return []
+
+
 def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
     print("[INFO] FinStat: snímam grafy...")
     url = f"https://finstat.sk/vyhladavanie?query={input_ico}"
@@ -1154,6 +1285,7 @@ def finstat_graph_screenshots(driver, wait, input_ico: str) -> list[dict]:
             ) or element.get_attribute("outerHTML") or ""
             chart_data = finstat_chart_data_from_svg(chart_html)
             if chart_data:
+                merge_highcharts_line_values(chart_data, finstat_highcharts_line_points(driver, element))
                 chart_data["nazov"] = graph_name
                 image = None
             else:
