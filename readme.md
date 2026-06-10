@@ -6,7 +6,7 @@
 
 ICO Scraper je FastAPI webová aplikácia na vyhľadávanie slovenských firiem podľa IČO. Získava dáta z verejných zdrojov, rozdeľuje ich do záložiek a umožňuje export do JSON alebo XLSX.
 
-Frontend je vložený priamo v `app.py`. Scraping, parsovanie a orchestrácia portálov sú v `main.py`.
+Frontend je v `templates/index.html` a štýly sú v `static/styles.css`. `app.py` obsluhuje FastAPI routy, statické súbory a exporty. Scraping, parsovanie a orchestrácia portálov sú v `main.py`.
 
 ### Funkcie
 
@@ -34,7 +34,11 @@ Frontend je vložený priamo v `app.py`. Scraping, parsovanie a orchestrácia po
 
 ```text
 .
-├── app.py              # FastAPI aplikácia, HTML/CSS/JS UI, exporty
+├── app.py              # FastAPI aplikácia, routy, statické súbory, exporty
+├── templates/
+│   └── index.html      # HTML UI a inline JavaScript
+├── static/
+│   └── styles.css      # Štýly webového UI
 ├── main.py             # Scraping, parsovanie portálov, orchestrácia
 ├── finstatapitest.py   # Testovací skript pre FinStat API
 ├── requirements.txt    # Python závislosti
@@ -301,7 +305,7 @@ Pred commitom spusti:
 venv/bin/python -m py_compile app.py main.py finstatapitest.py
 ```
 
-Ak meníš JavaScript v `app.py`, môžeš ho overiť extrakciou inline skriptu a príkazom `node --check`.
+Ak meníš JavaScript v `templates/index.html`, môžeš ho overiť extrakciou inline skriptu a príkazom `node --check`.
 
 ---
 
@@ -311,7 +315,7 @@ Ak meníš JavaScript v `app.py`, môžeš ho overiť extrakciou inline skriptu 
 
 ICO Scraper is a FastAPI web application for looking up Slovak companies by IČO. It collects data from public sources, displays the result in tabs, and supports JSON/XLSX export.
 
-The frontend is embedded in `app.py`. Scraping, parsing, and orchestration are implemented in `main.py`.
+The frontend lives in `templates/index.html` and styles live in `static/styles.css`. `app.py` serves the FastAPI routes, static files, and exports. Scraping, parsing, and orchestration are implemented in `main.py`.
 
 ### Features
 
@@ -339,7 +343,11 @@ The frontend is embedded in `app.py`. Scraping, parsing, and orchestration are i
 
 ```text
 .
-├── app.py              # FastAPI app, HTML/CSS/JS UI, exports
+├── app.py              # FastAPI app, routes, static files, exports
+├── templates/
+│   └── index.html      # HTML UI and inline JavaScript
+├── static/
+│   └── styles.css      # Web UI styles
 ├── main.py             # Scraping, portal parsers, orchestration
 ├── finstatapitest.py   # FinStat API test script
 ├── requirements.txt    # Python dependencies
@@ -604,4 +612,4 @@ Before committing, run:
 venv/bin/python -m py_compile app.py main.py finstatapitest.py
 ```
 
-If you change JavaScript embedded in `app.py`, extract it and run `node --check`.
+If you change JavaScript embedded in `templates/index.html`, extract it and run `node --check`.
