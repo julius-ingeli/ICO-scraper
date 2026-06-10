@@ -801,6 +801,10 @@ def euro_label_unit(label: str) -> str:
     return "€"
 
 
+def format_plain_euro_integer(value: int) -> str:
+    return f"{value:,}".replace(",", " ")
+
+
 def format_euro_amount(value: float, unit: str, approximate: bool = False) -> str:
     divisor = 1
     if unit.startswith("mld"):
@@ -811,9 +815,28 @@ def format_euro_amount(value: float, unit: str, approximate: bool = False) -> st
         divisor = 1_000
 
     amount = value / divisor
-    formatted = f"{amount:.2f}".replace(".", ",")
+    if unit == "€" and float(amount).is_integer():
+        formatted = format_plain_euro_integer(int(amount))
+        separator = ""
+    else:
+        formatted = f"{amount:.2f}".replace(".", ",")
+        separator = " "
     prefix = "~" if approximate else ""
-    return f"{prefix}{formatted} {unit}"
+    return f"{prefix}{formatted}{separator}{unit}"
+
+
+def normalize_exact_euro_label(label: str) -> str:
+    text = normalize_text(label).strip()
+    if re.search(r"\b(?:mld|mil|tis)\.?", text, flags=re.IGNORECASE):
+        return text
+
+    def replace_whole_euro(match):
+        number = match.group(1).replace(" ", "")
+        sign = "-" if number.startswith("-") else ""
+        number = number.lstrip("-")
+        return f"{sign}{format_plain_euro_integer(int(number))}€"
+
+    return re.sub(r"(-?\d[\d ]*),00\s*€", replace_whole_euro, text)
 
 
 def format_euro_label(value: float, unit: str) -> str:
@@ -830,7 +853,7 @@ def tooltip_value_label(text: str, fallback_value: float | None = None) -> str:
 
     candidates = []
     for match in matches:
-        candidate = normalize_text(match).strip()
+        candidate = normalize_exact_euro_label(match)
         if not candidate:
             continue
         if re.fullmatch(r"\d{4}", candidate):
