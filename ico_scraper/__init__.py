@@ -1,0 +1,1 @@
+"""ICO Scraper application package."""

@@ -17,7 +17,7 @@ from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
 from openpyxl.drawing.xdr import XDRPositiveSize2D
 
 
-TEMPLATE_PATH = Path(__file__).with_name("template.xlsx")
+TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "template.xlsx"
 SOURCE_URL_FIELD = "__source_url"
 
 # Excel stores column widths in character units. This maps requested pixel widths
