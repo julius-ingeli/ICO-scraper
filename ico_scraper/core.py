@@ -656,6 +656,12 @@ def finstat_scrape(input_ico: str) -> dict:
 
     soup = BeautifulSoup(response.text, "lxml")
 
+    heading = soup.select_one("h1")
+    if heading:
+        company_name = normalize_text(" ".join(heading.find_all(string=True, recursive=False)))
+        if company_name:
+            result["zakladne_udaje"]["Obchodné meno"] = company_name
+
     # Základné info
     element = soup.select_one("div.col-md-8.detail-company-info-side.col-xs-12")
     if element:
@@ -1298,6 +1304,8 @@ def extract_company_name_from_subject(subject: dict, omit_legal_form: bool = Fal
         subject.get("orsr", {}).get("obchodne_meno"),
         subject.get("finstat", {}).get("zakladne_udaje", {}).get("Obchodné meno"),
         subject.get("finstat", {}).get("zakladne_udaje", {}).get("Názov"),
+        subject.get(GENERAL_INFO_FIELD, {}).get("zakladne_udaje", {}).get("Obchodné meno"),
+        subject.get(GENERAL_INFO_FIELD, {}).get("zakladne_udaje", {}).get("Názov"),
         subject.get("ruz", {}).get("nazov"),
         subject.get("ruz", {}).get("Názov"),
         subject.get("rpvs", {}).get("partner_verejneho_sektora", {}).get("Názov"),
@@ -1312,7 +1320,7 @@ def extract_company_name_from_subject(subject: dict, omit_legal_form: bool = Fal
 
     name_keys = {"obchodné meno", "obchodne meno", "názov", "nazov", "meno / názov", "meno / nazov"}
     for source, data in subject.items():
-        if source in {"ico", "crz"}:
+        if source in {"ico", "crz", GENERAL_INFO_FIELD}:
             continue
         stack = [data]
         while stack:
@@ -1718,6 +1726,7 @@ def parse_ruz_detail(driver, annual_reports: list[dict] | None = None) -> dict:
 NO_INFO_MESSAGE = "Na tomto portáli nie sú informácie o firme."
 AVAILABLE_SOURCES = {"orsr", "rpvs", "finstat", "ruz", "crz"}
 SOURCE_URL_FIELD = "__source_url"
+GENERAL_INFO_FIELD = "__general_info"
 
 
 def no_info_result() -> dict:
@@ -1813,13 +1822,11 @@ def scrape_subject_parallel(ico: str, selected_sources: set[str], crz_omit_legal
             result["grafy"] = []
         return result
 
-    tasks = {}
+    tasks = {GENERAL_INFO_FIELD: ("FinStat", scrape_finstat_parallel)}
     if "orsr" in selected_sources:
         tasks["orsr"] = ("ORSR", lambda: browser_scrape(scrape_orsr_browser))
     if "rpvs" in selected_sources:
         tasks["rpvs"] = ("RPVS", lambda: browser_scrape(scrape_rpvs_browser))
-    if "finstat" in selected_sources:
-        tasks["finstat"] = ("FinStat", scrape_finstat_parallel)
     if "ruz" in selected_sources:
         tasks["ruz"] = ("RUZ", lambda: browser_scrape(scrape_ruz_browser))
 
@@ -1832,7 +1839,10 @@ def scrape_subject_parallel(ico: str, selected_sources: set[str], crz_omit_legal
         }
         for future in as_completed(future_to_source):
             source = future_to_source[future]
-            subjekt[source] = future.result()
+            result = future.result()
+            subjekt[source] = result
+            if source == GENERAL_INFO_FIELD and "finstat" in selected_sources:
+                subjekt["finstat"] = result
 
     if "crz" in selected_sources:
         company_name = extract_company_name_from_subject(subjekt, omit_legal_form=crz_omit_legal_form)
@@ -1927,12 +1937,13 @@ def scrape_subject(ico: str, sources: set[str] | None = None, crz_omit_legal_for
                     traceback.print_exc()
                 return crz_scrape(ico)
 
+        subjekt[GENERAL_INFO_FIELD] = run_portal_scrape("FinStat", scrape_finstat)
+        if "finstat" in selected_sources:
+            subjekt["finstat"] = subjekt[GENERAL_INFO_FIELD]
         if "orsr" in selected_sources:
             subjekt["orsr"] = run_portal_scrape("ORSR", scrape_orsr)
         if "rpvs" in selected_sources:
             subjekt["rpvs"] = run_portal_scrape("RPVS", scrape_rpvs)
-        if "finstat" in selected_sources:
-            subjekt["finstat"] = run_portal_scrape("FinStat", scrape_finstat)
         if "ruz" in selected_sources:
             subjekt["ruz"] = run_portal_scrape("RUZ", scrape_ruz)
         if "crz" in selected_sources:

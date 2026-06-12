@@ -19,6 +19,7 @@ from openpyxl.drawing.xdr import XDRPositiveSize2D
 
 TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "template.xlsx"
 SOURCE_URL_FIELD = "__source_url"
+GENERAL_INFO_FIELD = "__general_info"
 
 # Excel stores column widths in character units. This maps requested pixel widths
 # closely enough for the default Calibri-based workbook rendering.
@@ -344,14 +345,15 @@ def crz_table_hyperlink(record: dict[str, Any], key: str) -> str:
 def write_overview(wb, data: dict[str, Any]) -> None:
     ws = wb["Prehľad"]
     orsr = data.get("orsr", {}) if isinstance(data.get("orsr"), dict) else {}
-    finstat_basic = data.get("finstat", {}).get("zakladne_udaje", {}) if isinstance(data.get("finstat"), dict) else {}
+    finstat = data.get(GENERAL_INFO_FIELD) if isinstance(data.get(GENERAL_INFO_FIELD), dict) else data.get("finstat", {})
+    finstat_basic = finstat.get("zakladne_udaje", {}) if isinstance(finstat, dict) else {}
     fill_value(ws, "C5", data.get("ico", ""))
     fill_value(ws, "C6", first_value(orsr.get("obchodne_meno"), finstat_basic.get("Obchodné meno"), finstat_basic.get("Názov")))
     fill_value(ws, "C7", first_value(orsr.get("sidlo"), finstat_basic.get("Sídlo"), finstat_basic.get("Adresa")))
     fill_value(ws, "C8", first_value(orsr.get("den_zapisu"), finstat_basic.get("Dátum vzniku")))
     ws["A12"].value = None
     apply_overview_reference_layout(ws)
-    write_finstat_charts(ws, data.get("finstat", {}).get("grafy", []), start_row=12)
+    write_finstat_charts(ws, finstat.get("grafy", []) if isinstance(finstat, dict) else [], start_row=12)
 
 
 def write_orsr(wb, data: dict[str, Any]) -> None:

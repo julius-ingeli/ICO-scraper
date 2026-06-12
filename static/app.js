@@ -7,8 +7,39 @@ const results = document.querySelector('#results');
 const sourceInputs = Array.from(document.querySelectorAll('input[name="source"]'));
 const crzOptions = document.querySelector('#crz-options');
 const crzKeepLegalFormInput = document.querySelector('#crz-keep-legal-form');
+const themeToggle = document.querySelector('#theme-toggle');
+const themePreferenceKey = 'ico-scraper-theme';
 let latestRawJson = '';
 let latestData = null;
+
+function systemTheme() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  const resolvedTheme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = resolvedTheme;
+  if (!themeToggle) return;
+  const isDark = resolvedTheme === 'dark';
+  themeToggle.setAttribute('aria-pressed', String(isDark));
+  themeToggle.setAttribute('aria-label', isDark ? 'Prepnúť svetlý režim' : 'Prepnúť tmavý režim');
+  themeToggle.setAttribute('title', isDark ? 'Svetlý režim' : 'Tmavý režim');
+}
+
+function savedTheme() {
+  const theme = localStorage.getItem(themePreferenceKey);
+  return theme === 'dark' || theme === 'light' ? theme : systemTheme();
+}
+
+applyTheme(savedTheme());
+
+if (themeToggle) {
+  themeToggle.addEventListener('click', () => {
+    const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(themePreferenceKey, nextTheme);
+    applyTheme(nextTheme);
+  });
+}
 
 const downloadIcon = `
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -179,7 +210,7 @@ function firstValue(...values) {
 
 function renderSummary(data) {
   const orsr = data.orsr || {};
-  const finstat = data.finstat || {};
+  const finstat = data.__general_info || data.finstat || {};
   const finstatBasic = finstat.zakladne_udaje || {};
   const companyName = firstValue(orsr.obchodne_meno, finstatBasic['Obchodné meno'], finstatBasic.Názov);
   const address = firstValue(orsr.sidlo, finstatBasic['Sídlo'], finstatBasic.Adresa);
@@ -197,7 +228,7 @@ function renderSummary(data) {
         <div class="field-label">Deň vzniku</div>
         <div class="field-value">${renderValue(foundingDay)}</div>
       </div>
-      ${'finstat' in data ? renderFinstatGraphs(finstat.grafy || []) : ''}
+      ${renderFinstatGraphs(finstat.grafy || [])}
     </section>
   `;
 }
@@ -231,7 +262,7 @@ function renderFinstatLineChart(chartData) {
 
   return `
     <svg class="line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(chartData.nazov || 'FinStat graf')}">
-      ${gridLines.map(y => `<line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" stroke="#e6e5e5" stroke-dasharray="6 4" />`).join('')}
+      ${gridLines.map(y => `<line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" class="chart-grid-line" stroke-dasharray="6 4" />`).join('')}
       <path class="chart-line" d="${linePath}" />
       ${chartPoints.map(point => `
         <circle class="chart-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" />
@@ -267,7 +298,7 @@ function renderFinstatBarChart(chartData) {
       const segmentHeight = Math.max(1, ((Number(segment.height_svg) || 0) / maxStack) * plotHeight);
       const y = currentBottom - segmentHeight;
       currentBottom = y;
-      return `<rect x="${(centerX - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${segmentHeight.toFixed(1)}" fill="${escapeAttribute(segment.color || '#52606d')}" />`;
+      return `<rect x="${(centerX - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${segmentHeight.toFixed(1)}" fill="${escapeAttribute(segment.color || 'var(--text-muted)')}" />`;
     }).join('');
 
     return `
@@ -280,13 +311,13 @@ function renderFinstatBarChart(chartData) {
   return `
     <div class="bar-chart-layout">
       <svg class="bar-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(chartData.nazov || 'FinStat stĺpcový graf')}">
-        ${gridLines.map(y => `<line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" stroke="#e6e5e5" stroke-dasharray="6 4" />`).join('')}
+        ${gridLines.map(y => `<line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" class="chart-grid-line" stroke-dasharray="6 4" />`).join('')}
         ${bars}
       </svg>
       <div class="chart-legend" aria-label="Legenda grafu">
         ${legend.map(item => `
           <div class="chart-legend-item">
-            <span class="chart-legend-swatch" style="background:${escapeAttribute(item.color || '#52606d')}"></span>
+            <span class="chart-legend-swatch" style="background:${escapeAttribute(item.color || 'var(--text-muted)')}"></span>
             <span>${renderValue(item.label || '')}</span>
           </div>
         `).join('')}
@@ -302,12 +333,12 @@ function renderFinstatPieChart(chartData) {
   return `
     <div class="pie-chart-layout">
       <svg class="pie-chart" viewBox="0 0 284 230" role="img" aria-label="${escapeAttribute(chartData.nazov || 'FinStat koláčový graf')}" preserveAspectRatio="xMidYMid meet">
-        ${slices.map(slice => slice.path ? `<path d="${escapeAttribute(slice.path)}" fill="${escapeAttribute(slice.color || '#52606d')}" transform="translate(4,67) scale(1.08) translate(-11,-7)" />` : '').join('')}
+        ${slices.map(slice => slice.path ? `<path d="${escapeAttribute(slice.path)}" fill="${escapeAttribute(slice.color || 'var(--text-muted)')}" transform="translate(4,67) scale(1.08) translate(-11,-7)" />` : '').join('')}
       </svg>
       <div class="pie-legend" aria-label="Legenda grafu">
         ${slices.map(slice => `
           <div class="pie-legend-item">
-            <span class="chart-legend-swatch" style="background:${escapeAttribute(slice.color || '#52606d')}"></span>
+            <span class="chart-legend-swatch" style="background:${escapeAttribute(slice.color || 'var(--text-muted)')}"></span>
             <span>${renderValue(slice.label || '')}</span>
             <span class="pie-legend-value">${renderValue(slice.value_label || '')}</span>
           </div>
@@ -689,9 +720,8 @@ function activateTab(key) {
 function renderResults(data) {
   latestData = data;
   latestRawJson = JSON.stringify(data, null, 2);
-  const includeGeneralInfo = sourceInputs.every(input => input.checked);
   const preferredOrder = [
-    ...(includeGeneralInfo ? ['ico'] : []),
+    'ico',
     'orsr',
     'rpvs',
     'finstat',
@@ -700,7 +730,7 @@ function renderResults(data) {
   ];
   const keys = preferredOrder.filter(key => key in data);
   Object.keys(data).forEach(key => {
-    if (key === 'ico' && !includeGeneralInfo) return;
+    if (key === '__general_info') return;
     if (!keys.includes(key)) keys.push(key);
   });
   keys.push('raw');

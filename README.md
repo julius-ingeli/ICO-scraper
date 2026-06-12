@@ -13,7 +13,7 @@ Frontend je v `templates/index.html`, JavaScript v `static/app.js` a štýly v `
 - Vyhľadávanie podľa IČO.
 - Výber zdrojov cez prepínače.
 - Samostatné záložky pre ORSR, RPVS, FinStat, RÚZ, CRZ a export dát.
-- Záložka `Všeob. Info` iba pri zapnutí všetkých zdrojov.
+- Záložka `Všeob. Info` sa zobrazuje vždy a používa FinStat údaje vrátane grafov.
 - Bezpečné spracovanie prázdnych výsledkov.
 - Export do `.json` a `.xlsx`.
 - Kopírovanie JSON výstupu.
@@ -156,7 +156,7 @@ CHROME_BIN=/path/to/chromium
 
 ### Webové rozhranie
 
-UI obsahuje vstup pre IČO, prepínače zdrojov, výsledkové záložky a export dát. `Všeob. Info` sa zobrazí iba vtedy, keď sú zapnuté všetky zdroje. Pri čiastočnom výbere sa zobrazia len vybrané zdroje a export.
+UI obsahuje vstup pre IČO, prepínače zdrojov, výsledkové záložky a export dát. `Všeob. Info` sa zobrazuje vždy a načítava FinStat údaje vrátane grafov. FinStat zostáva samostatnou záložkou, ak je vybraný ako zdroj. Pri čiastočnom výbere sa okrem všeobecných informácií zobrazia len vybrané zdroje a export.
 
 ### API
 
@@ -328,7 +328,7 @@ The frontend markup lives in `templates/index.html`, JavaScript in `static/app.j
 - Company lookup by IČO.
 - Source selection with UI toggles.
 - Separate tabs for ORSR, RPVS, FinStat, RÚZ, CRZ, and export.
-- `Všeob. Info` tab when all sources are selected.
+- `Všeob. Info` tab is always displayed and uses FinStat data, including charts.
 - Graceful handling of empty portal results.
 - JSON and XLSX export.
 - Copy JSON output.
@@ -469,7 +469,7 @@ CHROME_BIN=/path/to/chromium
 
 ### Web UI
 
-The UI contains IČO input, source toggles, result tabs, and data export. `Všeob. Info` is displayed only when all sources are enabled. If only some sources are selected, the app displays only those source tabs and export.
+The UI contains IČO input, source toggles, result tabs, and data export. `Všeob. Info` is always displayed and loads FinStat data, including charts. FinStat remains a standalone tab when selected as a source. With a partial source selection, the app displays general information, selected source tabs, and export.
 
 ### API
 
