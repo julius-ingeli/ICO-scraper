@@ -6,14 +6,14 @@
 
 ICO Scraper je FastAPI webová aplikácia na vyhľadávanie slovenských firiem podľa IČO. Získava dáta z verejných zdrojov, rozdeľuje ich do záložiek a umožňuje export do JSON alebo XLSX.
 
-Frontend je vložený priamo v `app.py`. Scraping, parsovanie a orchestrácia portálov sú v `main.py`.
+Frontend je v `templates/index.html`, JavaScript v `static/app.js` a štýly v `static/styles.css`. `app.py` je kompatibilitný ASGI wrapper, FastAPI routy sú v `ico_scraper/web.py`, scraping a orchestrácia v `ico_scraper/core.py` a XLSX export v `ico_scraper/exporters/xlsx.py`.
 
 ### Funkcie
 
 - Vyhľadávanie podľa IČO.
 - Výber zdrojov cez prepínače.
 - Samostatné záložky pre ORSR, RPVS, FinStat, RÚZ, CRZ a export dát.
-- Záložka `Všeob. Info` iba pri zapnutí všetkých zdrojov.
+- Záložka `Všeob. Info` sa zobrazuje vždy a používa FinStat údaje vrátane grafov.
 - Bezpečné spracovanie prázdnych výsledkov.
 - Export do `.json` a `.xlsx`.
 - Kopírovanie JSON výstupu.
@@ -34,16 +34,26 @@ Frontend je vložený priamo v `app.py`. Scraping, parsovanie a orchestrácia po
 
 ```text
 .
-├── app.py              # FastAPI aplikácia, HTML/CSS/JS UI, exporty
-├── main.py             # Scraping, parsovanie portálov, orchestrácia
-├── finstatapitest.py   # Testovací skript pre FinStat API
+├── app.py              # Kompatibilitný ASGI wrapper pre uvicorn app:app
+├── main.py             # Kompatibilitný CLI wrapper pre python main.py
+├── ico_scraper/
+│   ├── web.py          # FastAPI routy, statické súbory, exporty
+│   ├── browser.py      # Selenium driver a debug helpery
+│   ├── core.py         # Scraping, parsovanie portálov, orchestrácia
+│   └── exporters/
+│       └── xlsx.py     # XLSX export do template.xlsx
+├── templates/
+│   └── index.html      # HTML UI
+├── static/
+│   ├── app.js          # JavaScript webového UI
+│   └── styles.css      # Štýly webového UI
 ├── requirements.txt    # Python závislosti
 ├── apt.txt             # Systémové balíky pre Render
 ├── Procfile            # Start command pre Render
-├── Dockerfile          # Docker image pre CLI/lokálne použitie
+├── Dockerfile          # Docker image pre web aplikáciu
 ├── docker-compose.yaml # Selenium Chrome + scraper
 ├── example.html        # Lokálne HTML príklady pre vývoj parserov
-└── readme.md           # Dokumentácia
+└── README.md           # Dokumentácia
 ```
 
 ### Požiadavky
@@ -146,7 +156,7 @@ CHROME_BIN=/path/to/chromium
 
 ### Webové rozhranie
 
-UI obsahuje vstup pre IČO, prepínače zdrojov, výsledkové záložky a export dát. `Všeob. Info` sa zobrazí iba vtedy, keď sú zapnuté všetky zdroje. Pri čiastočnom výbere sa zobrazia len vybrané zdroje a export.
+UI obsahuje vstup pre IČO, prepínače zdrojov, výsledkové záložky a export dát. `Všeob. Info` sa zobrazuje vždy a načítava FinStat údaje vrátane grafov. FinStat zostáva samostatnou záložkou, ak je vybraný ako zdroj. Pri čiastočnom výbere sa okrem všeobecných informácií zobrazia len vybrané zdroje a export.
 
 ### API
 
@@ -298,10 +308,10 @@ Je to očakávané pri Selenium scrapingu na free tieri. Bezpečné optimalizác
 Pred commitom spusti:
 
 ```bash
-venv/bin/python -m py_compile app.py main.py finstatapitest.py
+venv/bin/python -m py_compile app.py main.py ico_scraper/web.py ico_scraper/browser.py ico_scraper/core.py ico_scraper/exporters/xlsx.py finstatapitest.py
 ```
 
-Ak meníš JavaScript v `app.py`, môžeš ho overiť extrakciou inline skriptu a príkazom `node --check`.
+Ak meníš JavaScript v `static/app.js`, môžeš ho overiť príkazom `node --check static/app.js`.
 
 ---
 
@@ -311,14 +321,14 @@ Ak meníš JavaScript v `app.py`, môžeš ho overiť extrakciou inline skriptu 
 
 ICO Scraper is a FastAPI web application for looking up Slovak companies by IČO. It collects data from public sources, displays the result in tabs, and supports JSON/XLSX export.
 
-The frontend is embedded in `app.py`. Scraping, parsing, and orchestration are implemented in `main.py`.
+The frontend markup lives in `templates/index.html`, JavaScript in `static/app.js`, and styles in `static/styles.css`. `app.py` is a compatibility ASGI wrapper, FastAPI routes live in `ico_scraper/web.py`, scraping and orchestration live in `ico_scraper/core.py`, and XLSX export lives in `ico_scraper/exporters/xlsx.py`.
 
 ### Features
 
 - Company lookup by IČO.
 - Source selection with UI toggles.
 - Separate tabs for ORSR, RPVS, FinStat, RÚZ, CRZ, and export.
-- `Všeob. Info` tab when all sources are selected.
+- `Všeob. Info` tab is always displayed and uses FinStat data, including charts.
 - Graceful handling of empty portal results.
 - JSON and XLSX export.
 - Copy JSON output.
@@ -339,16 +349,26 @@ The frontend is embedded in `app.py`. Scraping, parsing, and orchestration are i
 
 ```text
 .
-├── app.py              # FastAPI app, HTML/CSS/JS UI, exports
-├── main.py             # Scraping, portal parsers, orchestration
-├── finstatapitest.py   # FinStat API test script
+├── app.py              # Compatibility ASGI wrapper for uvicorn app:app
+├── main.py             # Compatibility CLI wrapper for python main.py
+├── ico_scraper/
+│   ├── web.py          # FastAPI routes, static files, exports
+│   ├── browser.py      # Selenium driver and debug helpers
+│   ├── core.py         # Scraping, portal parsers, orchestration
+│   └── exporters/
+│       └── xlsx.py     # XLSX export using template.xlsx
+├── templates/
+│   └── index.html      # HTML UI
+├── static/
+│   ├── app.js          # Web UI JavaScript
+│   └── styles.css      # Web UI styles
 ├── requirements.txt    # Python dependencies
 ├── apt.txt             # System packages for Render
 ├── Procfile            # Render start command
-├── Dockerfile          # Docker image for CLI/local use
+├── Dockerfile          # Docker image for the web app
 ├── docker-compose.yaml # Selenium Chrome + scraper
 ├── example.html        # Local HTML examples for parser development
-└── readme.md           # Documentation
+└── README.md           # Documentation
 ```
 
 ### Requirements
@@ -449,7 +469,7 @@ CHROME_BIN=/path/to/chromium
 
 ### Web UI
 
-The UI contains IČO input, source toggles, result tabs, and data export. `Všeob. Info` is displayed only when all sources are enabled. If only some sources are selected, the app displays only those source tabs and export.
+The UI contains IČO input, source toggles, result tabs, and data export. `Všeob. Info` is always displayed and loads FinStat data, including charts. FinStat remains a standalone tab when selected as a source. With a partial source selection, the app displays general information, selected source tabs, and export.
 
 ### API
 
@@ -601,7 +621,7 @@ This is expected with Selenium scraping on the free tier. Safer optimizations ar
 Before committing, run:
 
 ```bash
-venv/bin/python -m py_compile app.py main.py finstatapitest.py
+venv/bin/python -m py_compile app.py main.py ico_scraper/web.py ico_scraper/browser.py ico_scraper/core.py ico_scraper/exporters/xlsx.py finstatapitest.py
 ```
 
-If you change JavaScript embedded in `app.py`, extract it and run `node --check`.
+If you change JavaScript in `static/app.js`, run `node --check static/app.js`.
