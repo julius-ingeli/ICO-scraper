@@ -397,6 +397,9 @@ button:disabled {
   font-weight: 700;
   fill: var(--text);
 }
+.bar-chart .negative-total-label {
+  fill: var(--text-muted);
+}
 
 .chart-legend {
   display: grid;

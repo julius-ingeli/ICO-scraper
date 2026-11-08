@@ -982,9 +982,16 @@ def finstat_bar_chart_data_from_svg(svg, title: str, subtitle: str, years: list[
             continue
         x_svg = float(label.get("x", 0) or 0) + stack_translate_x
         nearest = min(year_rows, key=lambda row: abs(row["x_svg"] - x_svg))
-        nearest["total_label"] = text_value
-        nearest["total_value"] = parse_euro_label(text_value)
-        nearest["total_y_svg"] = float(label.get("y", 0) or 0) + stack_translate_y
+        total_value = parse_euro_label(text_value)
+        label_y_svg = float(label.get("y", 0) or 0) + stack_translate_y
+        if isinstance(total_value, (int, float)) and total_value < 0:
+            nearest["negative_total_label"] = text_value
+            nearest["negative_total_value"] = total_value
+            nearest["negative_total_y_svg"] = label_y_svg
+        else:
+            nearest["total_label"] = text_value
+            nearest["total_value"] = total_value
+            nearest["total_y_svg"] = label_y_svg
 
     for row in year_rows:
         row["segments"].sort(key=lambda segment: segment["series_index"])
