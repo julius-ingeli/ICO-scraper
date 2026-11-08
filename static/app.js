@@ -280,7 +280,7 @@ function renderFinstatBarChart(chartData) {
 
   const width = 760;
   const height = 340;
-  const padding = { top: 34, right: 28, bottom: 48, left: 34 };
+  const padding = { top: 48, right: 28, bottom: 48, left: 34 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const maxStack = Math.max(...rows.map(row => Number(row.stack_height_svg) || 0), 1);
@@ -301,10 +301,15 @@ function renderFinstatBarChart(chartData) {
       return `<rect x="${(centerX - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${segmentHeight.toFixed(1)}" fill="${escapeAttribute(segment.color || 'var(--text-muted)')}" />`;
     }).join('');
 
+    const totalLabel = row.total_label || "";
+    const negativeTotalLabel = row.negative_total_label || "";
+    const totalLabelY = Math.max(14, currentBottom - (negativeTotalLabel ? 22 : 8));
+    const negativeTotalLabelY = totalLabel ? totalLabelY + 15 : totalLabelY;
     return `
       ${rects}
-      ${row.total_label ? `<text class="total-label" x="${centerX.toFixed(1)}" y="${Math.max(14, currentBottom - 8).toFixed(1)}" text-anchor="middle">${renderValue(row.total_label)}</text>` : ''}
-      <text x="${centerX.toFixed(1)}" y="${height - 16}" text-anchor="middle">${renderValue(row.rok || '')}</text>
+      ${totalLabel ? `<text class="total-label" x="${centerX.toFixed(1)}" y="${totalLabelY.toFixed(1)}" text-anchor="middle">${renderValue(totalLabel)}</text>` : ""}
+      ${negativeTotalLabel ? `<text class="total-label negative-total-label" x="${centerX.toFixed(1)}" y="${negativeTotalLabelY.toFixed(1)}" text-anchor="middle">${renderValue("(" + negativeTotalLabel + ")")}</text>` : ""}
+      <text x="${centerX.toFixed(1)}" y="${height - 16}" text-anchor="middle">${renderValue(row.rok || "")}</text>
     `;
   }).join('');
 
